@@ -17,32 +17,6 @@
         "full_name": {
           "name": "Full Name",
           "type": "text"
-        },
-        "user_principal_name": {
-          "name": "User Principal Name",
-          "type": "text",
-          "is_indexed": true,
-          "is_identifier": true
-        },
-        "job_title": {
-          "name": "Job Title",
-          "type": "text"
-        },
-        "department": {
-          "name": "Department",
-          "type": "text"
-        },
-        "office_location": {
-          "name": "Office Location",
-          "type": "text"
-        },
-        "account_enabled": {
-          "name": "Account Enabled",
-          "type": "bool"
-        },
-        "user_type": {
-          "name": "User Type",
-          "type": "text"
         }
       }
     },
@@ -57,22 +31,6 @@
         "description": {
           "name": "Description",
           "type": "rich_text"
-        },
-        "mail": {
-          "name": "Mail",
-          "type": "text"
-        },
-        "group_types": {
-          "name": "Group Types",
-          "type": "text"
-        },
-        "security_enabled": {
-          "name": "Security Enabled",
-          "type": "bool"
-        },
-        "mail_enabled": {
-          "name": "Mail Enabled",
-          "type": "bool"
         },
         "item_url_field": {
           "name": "Entra Portal URL",
@@ -113,7 +71,7 @@
         },
         "description": {
           "name": "Description",
-          "type": "rich_text"
+          "type": "text"
         },
         "role_template_id": {
           "name": "Role Template ID",
@@ -122,29 +80,6 @@
         "item_url_field": {
           "name": "Entra Portal URL",
           "type": "text"
-        }
-      }
-    },
-    "role_members": {
-      "name": "Role Members",
-      "fields": {
-        "member_id": {
-          "name": "Member",
-          "type": "reference",
-          "reference": {
-            "refers_to": {
-              "#record:users": {}
-            }
-          }
-        },
-        "role_id": {
-          "name": "Role",
-          "type": "reference",
-          "reference": {
-            "refers_to": {
-              "#record:directory_roles": {}
-            }
-          }
         }
       }
     },
@@ -269,6 +204,30 @@
         "registration_date_time": {
           "name": "Registration Date",
           "type": "timestamp"
+        },
+        "manufacturer": {
+          "name": "Manufacturer",
+          "type": "text"
+        },
+        "model": {
+          "name": "Model",
+          "type": "text"
+        },
+        "profile_type": {
+          "name": "Profile Type",
+          "type": "text"
+        },
+        "registered_owner_id": {
+          "name": "Registered Owner ID",
+          "type": "text"
+        },
+        "registered_owner_email": {
+          "name": "Registered Owner Email",
+          "type": "text"
+        },
+        "registered_owner_display_name": {
+          "name": "Registered Owner Name",
+          "type": "text"
         }
       }
     },
@@ -287,22 +246,6 @@
         },
         "full_name": {
           "name": "Full Name",
-          "type": "text"
-        },
-        "job_title": {
-          "name": "Job Title",
-          "type": "text"
-        },
-        "department": {
-          "name": "Department",
-          "type": "text"
-        },
-        "company_name": {
-          "name": "Company Name",
-          "type": "text"
-        },
-        "item_url_field": {
-          "name": "Entra Portal URL",
           "type": "text"
         }
       }

@@ -201,4 +201,28 @@ export class EntraIDClient {
     const response = await this.get<GraphPagedResponse<EntraApplication>>(`/applications?$top=100`);
     return response.value;
   }
+
+  // ── NEW: Device Registered Owners ──────────────────────────────────────────
+  async listDeviceRegisteredOwners(deviceId: string): Promise<GraphPagedResponse<EntraUser>> {
+    const url = `/devices/${encodeURIComponent(deviceId)}/registeredOwners`;
+    return this.get<GraphPagedResponse<EntraUser>>(url);
+  }
+
+  // ── NEW: Device Registered Users ───────────────────────────────────────────
+  async listDeviceRegisteredUsers(deviceId: string): Promise<GraphPagedResponse<EntraUser>> {
+    const url = `/devices/${encodeURIComponent(deviceId)}/registeredUsers`;
+    return this.get<GraphPagedResponse<EntraUser>>(url);
+  }
+
+  // ── NEW: Device Full Details ───────────────────────────────────────────────
+  async getDeviceDetails(deviceId: string): Promise<EntraDevice> {
+    const url = `/devices/${encodeURIComponent(deviceId)}?$select=id,manufacturer,model,profileType`;
+    return this.get<EntraDevice>(url);
+  }
+
+  // ── NEW: User Phone Details ────────────────────────────────────────────────
+  async getUserPhoneDetails(userId: string): Promise<EntraUser> {
+    const url = `/users/${encodeURIComponent(userId)}?$select=id,mobilePhone,businessPhones`;
+    return this.get<EntraUser>(url);
+  }
 }

@@ -85,6 +85,14 @@ export interface EntraDevice {
   approximateLastSignInDateTime: string | null;
   deviceId: string | null;
   '@removed'?: { reason: string };
+  // NEW: Additional device details (populated via API call)
+  manufacturer?: string | null;
+  model?: string | null;
+  profileType?: string | null;
+  // NEW: Owner information (populated via API call)
+  registeredOwnerId?: string | null;
+  registeredOwnerEmail?: string | null;
+  registeredOwnerDisplayName?: string | null;
 }
 
 export interface EntraOrgContact {

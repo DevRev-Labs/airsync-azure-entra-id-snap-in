@@ -141,25 +141,6 @@
                   "transformation_method_for_set": {
                     "transformation_method": "use_directly"
                   }
-                },
-                "target_object_type": {
-                  "forward": true,
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "enum": "group",
-                    "transformation_method": "use_fixed_value",
-                    "value": "enum_value"
-                  }
-                },
-                "valid_from_date": {
-                  "forward": true,
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "can_apply_to_null": true,
-                    "forward_jq": "now | todate",
-                    "transformation_method": "use_raw_jq",
-                    "use_primary_input": false
-                  }
                 }
               }
             }
@@ -168,120 +149,145 @@
       },
       "directory_roles": {
         "default_mapping": {
-          "object_category": "stock",
-          "object_type": "group"
+          "object_category": "fresh_custom",
+          "object_type": ""
         },
-        "possible_record_type_mappings": [
-          {
-            "devrev_leaf_type": "group",
-            "forward": true,
-            "reverse": false,
-            "shard": {
-              "constructed_custom_fields": {},
-              "devrev_leaf_type": {
-                "object_category": "stock",
-                "object_type": "group"
+        "mapping_as_custom_object": {
+          "forward": true,
+          "reverse": false,
+          "shard": {
+            "constructed_custom_fields": {
+              "ext_object_type": {
+                "field_descriptor": {
+                  "allowed_values": ["DirectoryRole"],
+                  "data_name": "ext_object_type",
+                  "db_name": "ext_object_type",
+                  "default_value": "DirectoryRole",
+                  "field_type": "enum",
+                  "is_required": true,
+                  "name": "ext_object_type",
+                  "ui": {
+                    "display_name": "External Object Type",
+                    "is_hidden_during_create": true,
+                    "is_read_only": true
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": false,
+                  "custom_field_type": {
+                    "allowed_values": ["DirectoryRole"],
+                    "data_name": "ext_object_type",
+                    "db_name": "ext_object_type",
+                    "field_type": "enum",
+                    "name": "ext_object_type"
+                  },
+                  "forward_jq": "\"DirectoryRole\"",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": false
+                }
               },
-              "mode": "create_shard",
-              "stock_field_mappings": {
-                "name": {
-                  "fallback": { "type": "text", "value": "Unknown Role" },
-                  "forward": true,
-                  "primary_external_field": "name",
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "transformation_method": "use_directly"
+              "name": {
+                  "field_descriptor": {
+                    "data_name": "name",
+                    "db_name": "name",
+                    "field_type": "text",
+                    "name": "name",
+                    "ui": {
+                      "display_name": "Role Name"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "name",
+                      "db_name": "name",
+                      "field_type": "text",
+                      "name": "name"
+                    },
+                    "forward_jq": ".name",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
                   }
                 },
                 "description": {
-                  "fallback": { "type": "rich_text", "value": "No description" },
-                  "forward": true,
-                  "primary_external_field": "description",
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "transformation_method": "use_rich_text"
+                  "field_descriptor": {
+                    "data_name": "description",
+                    "db_name": "description",
+                    "field_type": "text",
+                    "name": "description",
+                    "ui": {
+                      "display_name": "Description"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "description",
+                      "db_name": "description",
+                      "field_type": "text",
+                      "name": "description"
+                    },
+                    "forward_jq": ".description",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
                   }
                 },
-                "type": {
-                  "forward": true,
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "enum": "static",
-                    "transformation_method": "use_fixed_value",
-                    "value": "enum_value"
+                "role_template_id": {
+                  "field_descriptor": {
+                    "data_name": "role_template_id",
+                    "db_name": "role_template_id",
+                    "field_type": "text",
+                    "name": "role_template_id",
+                    "ui": {
+                      "display_name": "Role Template ID"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "role_template_id",
+                      "db_name": "role_template_id",
+                      "field_type": "text",
+                      "name": "role_template_id"
+                    },
+                    "forward_jq": ".role_template_id",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
                   }
                 },
                 "item_url_field": {
-                  "forward": true,
-                  "primary_external_field": "item_url_field",
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "transformation_method": "use_directly"
+                  "field_descriptor": {
+                    "data_name": "item_url_field",
+                    "db_name": "item_url_field",
+                    "field_type": "text",
+                    "name": "item_url_field",
+                    "ui": {
+                      "display_name": "Entra Portal URL"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "item_url_field",
+                      "db_name": "item_url_field",
+                      "field_type": "text",
+                      "name": "item_url_field"
+                    },
+                    "forward_jq": ".item_url_field",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
                   }
                 }
-              }
-            }
-          }
-        ]
-      },
-      "role_members": {
-        "default_mapping": {
-          "object_category": "stock",
-          "object_type": "object_member"
-        },
-        "possible_record_type_mappings": [
-          {
-            "devrev_leaf_type": "object_member",
-            "forward": true,
-            "reverse": false,
-            "shard": {
-              "constructed_custom_fields": {},
+              },
               "devrev_leaf_type": {
-                "object_category": "stock",
-                "object_type": "object_member"
+                "object_category": "fresh_custom",
+                "object_type": ""
               },
               "mode": "create_shard",
-              "stock_field_mappings": {
-                "member_id": {
-                  "forward": true,
-                  "primary_external_field": "member_id",
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "transformation_method": "use_directly"
-                  }
-                },
-                "object_id": {
-                  "forward": true,
-                  "primary_external_field": "role_id",
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "transformation_method": "use_directly"
-                  }
-                },
-                "target_object_type": {
-                  "forward": true,
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "enum": "group",
-                    "transformation_method": "use_fixed_value",
-                    "value": "enum_value"
-                  }
-                },
-                "valid_from_date": {
-                  "forward": true,
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "can_apply_to_null": true,
-                    "forward_jq": "now | todate",
-                    "transformation_method": "use_raw_jq",
-                    "use_primary_input": false
-                  }
-                }
-              }
+              "stock_field_mappings": {}
             }
           }
-        ]
-      },
+        },
       "applications": {
         "default_mapping": {
           "object_category": "fresh_custom",
@@ -298,11 +304,9 @@
                   "data_name": "ext_object_type",
                   "db_name": "ext_object_type",
                   "default_value": "Application",
-                  "description": "The source object type that the item was created from.",
                   "field_type": "enum",
                   "is_required": true,
                   "name": "ext_object_type",
-                  "oasis": { "name": "ext_object_type" },
                   "ui": {
                     "display_name": "External Object Type",
                     "is_hidden_during_create": true,
@@ -313,44 +317,166 @@
                   "can_apply_to_null": false,
                   "custom_field_type": {
                     "allowed_values": ["Application"],
-                    "data_name": "dummy name",
-                    "db_name": "dummy name",
+                    "data_name": "ext_object_type",
+                    "db_name": "ext_object_type",
                     "field_type": "enum",
-                    "name": "dummy name",
-                    "oasis": { "name": "dummy name" }
+                    "name": "ext_object_type"
                   },
                   "forward_jq": "\"Application\"",
                   "transformation_method": "use_raw_jq",
                   "use_primary_input": false
                 }
-              }
-            },
-            "devrev_leaf_type": {
-              "object_category": "fresh_custom",
-              "object_type": ""
-            },
-            "mode": "create_shard",
-            "stock_field_mappings": {
-              "title": {
-                "forward": true,
-                "primary_external_field": "display_name",
-                "reverse": false,
-                "transformation_method_for_set": {
-                  "transformation_method": "use_directly"
+              },
+              "display_name": {
+                  "field_descriptor": {
+                    "data_name": "display_name",
+                    "db_name": "display_name",
+                    "field_type": "text",
+                    "name": "display_name",
+                    "ui": {
+                      "display_name": "Display Name"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "display_name",
+                      "db_name": "display_name",
+                      "field_type": "text",
+                      "name": "display_name"
+                    },
+                    "forward_jq": ".display_name",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "app_id": {
+                  "field_descriptor": {
+                    "data_name": "app_id",
+                    "db_name": "app_id",
+                    "field_type": "text",
+                    "name": "app_id",
+                    "ui": {
+                      "display_name": "Application (Client) ID"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "app_id",
+                      "db_name": "app_id",
+                      "field_type": "text",
+                      "name": "app_id"
+                    },
+                    "forward_jq": ".app_id",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "sign_in_audience": {
+                  "field_descriptor": {
+                    "allowed_values": ["AzureADMyOrg", "AzureADMultipleOrgs", "AzureADandPersonalMicrosoftAccount", "PersonalMicrosoftAccount"],
+                    "data_name": "sign_in_audience",
+                    "db_name": "sign_in_audience",
+                    "field_type": "enum",
+                    "name": "sign_in_audience",
+                    "ui": {
+                      "display_name": "Sign-In Audience"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "allowed_values": ["AzureADMyOrg", "AzureADMultipleOrgs", "AzureADandPersonalMicrosoftAccount", "PersonalMicrosoftAccount"],
+                      "data_name": "sign_in_audience",
+                      "db_name": "sign_in_audience",
+                      "field_type": "enum",
+                      "name": "sign_in_audience"
+                    },
+                    "forward_jq": ".sign_in_audience",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "publisher_domain": {
+                  "field_descriptor": {
+                    "data_name": "publisher_domain",
+                    "db_name": "publisher_domain",
+                    "field_type": "text",
+                    "name": "publisher_domain",
+                    "ui": {
+                      "display_name": "Publisher Domain"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "publisher_domain",
+                      "db_name": "publisher_domain",
+                      "field_type": "text",
+                      "name": "publisher_domain"
+                    },
+                    "forward_jq": ".publisher_domain",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "identifier_uris": {
+                  "field_descriptor": {
+                    "data_name": "identifier_uris",
+                    "db_name": "identifier_uris",
+                    "field_type": "text",
+                    "name": "identifier_uris",
+                    "ui": {
+                      "display_name": "Identifier URIs"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "identifier_uris",
+                      "db_name": "identifier_uris",
+                      "field_type": "text",
+                      "name": "identifier_uris"
+                    },
+                    "forward_jq": ".identifier_uris",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "item_url_field": {
+                  "field_descriptor": {
+                    "data_name": "item_url_field",
+                    "db_name": "item_url_field",
+                    "field_type": "text",
+                    "name": "item_url_field",
+                    "ui": {
+                      "display_name": "Entra Portal URL"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "item_url_field",
+                      "db_name": "item_url_field",
+                      "field_type": "text",
+                      "name": "item_url_field"
+                    },
+                    "forward_jq": ".item_url_field",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
                 }
               },
-              "item_url_field": {
-                "forward": true,
-                "primary_external_field": "item_url_field",
-                "reverse": false,
-                "transformation_method_for_set": {
-                  "transformation_method": "use_directly"
-                }
-              }
+              "devrev_leaf_type": {
+                "object_category": "fresh_custom",
+                "object_type": ""
+              },
+              "mode": "create_shard",
+              "stock_field_mappings": {}
             }
           }
-        }
-      },
+        },
       "service_principals": {
         "default_mapping": {
           "object_category": "fresh_custom",
@@ -367,11 +493,9 @@
                   "data_name": "ext_object_type",
                   "db_name": "ext_object_type",
                   "default_value": "ServicePrincipal",
-                  "description": "The source object type that the item was created from.",
                   "field_type": "enum",
                   "is_required": true,
                   "name": "ext_object_type",
-                  "oasis": { "name": "ext_object_type" },
                   "ui": {
                     "display_name": "External Object Type",
                     "is_hidden_during_create": true,
@@ -382,44 +506,166 @@
                   "can_apply_to_null": false,
                   "custom_field_type": {
                     "allowed_values": ["ServicePrincipal"],
-                    "data_name": "dummy name",
-                    "db_name": "dummy name",
+                    "data_name": "ext_object_type",
+                    "db_name": "ext_object_type",
                     "field_type": "enum",
-                    "name": "dummy name",
-                    "oasis": { "name": "dummy name" }
+                    "name": "ext_object_type"
                   },
                   "forward_jq": "\"ServicePrincipal\"",
                   "transformation_method": "use_raw_jq",
                   "use_primary_input": false
                 }
-              }
-            },
-            "devrev_leaf_type": {
-              "object_category": "fresh_custom",
-              "object_type": ""
-            },
-            "mode": "create_shard",
-            "stock_field_mappings": {
-              "title": {
-                "forward": true,
-                "primary_external_field": "display_name",
-                "reverse": false,
-                "transformation_method_for_set": {
-                  "transformation_method": "use_directly"
+              },
+              "display_name": {
+                  "field_descriptor": {
+                    "data_name": "display_name",
+                    "db_name": "display_name",
+                    "field_type": "text",
+                    "name": "display_name",
+                    "ui": {
+                      "display_name": "Display Name"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "display_name",
+                      "db_name": "display_name",
+                      "field_type": "text",
+                      "name": "display_name"
+                    },
+                    "forward_jq": ".display_name",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "app_id": {
+                  "field_descriptor": {
+                    "data_name": "app_id",
+                    "db_name": "app_id",
+                    "field_type": "text",
+                    "name": "app_id",
+                    "ui": {
+                      "display_name": "Application ID"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "app_id",
+                      "db_name": "app_id",
+                      "field_type": "text",
+                      "name": "app_id"
+                    },
+                    "forward_jq": ".app_id",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "service_principal_type": {
+                  "field_descriptor": {
+                    "allowed_values": ["Application", "ManagedIdentity", "Legacy", "SocialIdp"],
+                    "data_name": "service_principal_type",
+                    "db_name": "service_principal_type",
+                    "field_type": "enum",
+                    "name": "service_principal_type",
+                    "ui": {
+                      "display_name": "Type"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "allowed_values": ["Application", "ManagedIdentity", "Legacy", "SocialIdp"],
+                      "data_name": "service_principal_type",
+                      "db_name": "service_principal_type",
+                      "field_type": "enum",
+                      "name": "service_principal_type"
+                    },
+                    "forward_jq": ".service_principal_type",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "account_enabled": {
+                  "field_descriptor": {
+                    "data_name": "account_enabled",
+                    "db_name": "account_enabled",
+                    "field_type": "bool",
+                    "name": "account_enabled",
+                    "ui": {
+                      "display_name": "Account Enabled"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "account_enabled",
+                      "db_name": "account_enabled",
+                      "field_type": "bool",
+                      "name": "account_enabled"
+                    },
+                    "forward_jq": ".account_enabled",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "app_owner_organization_id": {
+                  "field_descriptor": {
+                    "data_name": "app_owner_organization_id",
+                    "db_name": "app_owner_organization_id",
+                    "field_type": "text",
+                    "name": "app_owner_organization_id",
+                    "ui": {
+                      "display_name": "App Owner Organization ID"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "app_owner_organization_id",
+                      "db_name": "app_owner_organization_id",
+                      "field_type": "text",
+                      "name": "app_owner_organization_id"
+                    },
+                    "forward_jq": ".app_owner_organization_id",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "item_url_field": {
+                  "field_descriptor": {
+                    "data_name": "item_url_field",
+                    "db_name": "item_url_field",
+                    "field_type": "text",
+                    "name": "item_url_field",
+                    "ui": {
+                      "display_name": "Entra Portal URL"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "item_url_field",
+                      "db_name": "item_url_field",
+                      "field_type": "text",
+                      "name": "item_url_field"
+                    },
+                    "forward_jq": ".item_url_field",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
                 }
               },
-              "item_url_field": {
-                "forward": true,
-                "primary_external_field": "item_url_field",
-                "reverse": false,
-                "transformation_method_for_set": {
-                  "transformation_method": "use_directly"
-                }
-              }
+              "devrev_leaf_type": {
+                "object_category": "fresh_custom",
+                "object_type": ""
+              },
+              "mode": "create_shard",
+              "stock_field_mappings": {}
             }
           }
-        }
-      },
+        },
       "devices": {
         "default_mapping": {
           "object_category": "fresh_custom",
@@ -436,11 +682,9 @@
                   "data_name": "ext_object_type",
                   "db_name": "ext_object_type",
                   "default_value": "Device",
-                  "description": "The source object type that the item was created from.",
                   "field_type": "enum",
                   "is_required": true,
                   "name": "ext_object_type",
-                  "oasis": { "name": "ext_object_type" },
                   "ui": {
                     "display_name": "External Object Type",
                     "is_hidden_during_create": true,
@@ -451,36 +695,350 @@
                   "can_apply_to_null": false,
                   "custom_field_type": {
                     "allowed_values": ["Device"],
-                    "data_name": "dummy name",
-                    "db_name": "dummy name",
+                    "data_name": "ext_object_type",
+                    "db_name": "ext_object_type",
                     "field_type": "enum",
-                    "name": "dummy name",
-                    "oasis": { "name": "dummy name" }
+                    "name": "ext_object_type"
                   },
                   "forward_jq": "\"Device\"",
                   "transformation_method": "use_raw_jq",
                   "use_primary_input": false
                 }
-              }
-            },
-            "devrev_leaf_type": {
-              "object_category": "fresh_custom",
-              "object_type": ""
-            },
-            "mode": "create_shard",
-            "stock_field_mappings": {
-              "title": {
-                "forward": true,
-                "primary_external_field": "display_name",
-                "reverse": false,
-                "transformation_method_for_set": {
-                  "transformation_method": "use_directly"
+              },
+              "display_name": {
+                  "field_descriptor": {
+                    "data_name": "display_name",
+                    "db_name": "display_name",
+                    "field_type": "text",
+                    "name": "display_name",
+                    "ui": {
+                      "display_name": "Display Name"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "display_name",
+                      "db_name": "display_name",
+                      "field_type": "text",
+                      "name": "display_name"
+                    },
+                    "forward_jq": ".display_name",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "operating_system": {
+                  "field_descriptor": {
+                    "data_name": "operating_system",
+                    "db_name": "operating_system",
+                    "field_type": "text",
+                    "name": "operating_system",
+                    "ui": {
+                      "display_name": "Operating System"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "operating_system",
+                      "db_name": "operating_system",
+                      "field_type": "text",
+                      "name": "operating_system"
+                    },
+                    "forward_jq": ".operating_system",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "operating_system_version": {
+                  "field_descriptor": {
+                    "data_name": "operating_system_version",
+                    "db_name": "operating_system_version",
+                    "field_type": "text",
+                    "name": "operating_system_version",
+                    "ui": {
+                      "display_name": "OS Version"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "operating_system_version",
+                      "db_name": "operating_system_version",
+                      "field_type": "text",
+                      "name": "operating_system_version"
+                    },
+                    "forward_jq": ".operating_system_version",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "trust_type": {
+                  "field_descriptor": {
+                    "allowed_values": ["AzureAD", "Workplace", "ServerAD"],
+                    "data_name": "trust_type",
+                    "db_name": "trust_type",
+                    "field_type": "enum",
+                    "name": "trust_type",
+                    "ui": {
+                      "display_name": "Trust Type"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "allowed_values": ["AzureAD", "Workplace", "ServerAD"],
+                      "data_name": "trust_type",
+                      "db_name": "trust_type",
+                      "field_type": "enum",
+                      "name": "trust_type"
+                    },
+                    "forward_jq": ".trust_type",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "is_compliant": {
+                  "field_descriptor": {
+                    "data_name": "is_compliant",
+                    "db_name": "is_compliant",
+                    "field_type": "bool",
+                    "name": "is_compliant",
+                    "ui": {
+                      "display_name": "Compliant"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "is_compliant",
+                      "db_name": "is_compliant",
+                      "field_type": "bool",
+                      "name": "is_compliant"
+                    },
+                    "forward_jq": ".is_compliant",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "is_managed": {
+                  "field_descriptor": {
+                    "data_name": "is_managed",
+                    "db_name": "is_managed",
+                    "field_type": "bool",
+                    "name": "is_managed",
+                    "ui": {
+                      "display_name": "Managed"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "is_managed",
+                      "db_name": "is_managed",
+                      "field_type": "bool",
+                      "name": "is_managed"
+                    },
+                    "forward_jq": ".is_managed",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "device_id": {
+                  "field_descriptor": {
+                    "data_name": "device_id",
+                    "db_name": "device_id",
+                    "field_type": "text",
+                    "name": "device_id",
+                    "ui": {
+                      "display_name": "Device ID"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "device_id",
+                      "db_name": "device_id",
+                      "field_type": "text",
+                      "name": "device_id"
+                    },
+                    "forward_jq": ".device_id",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "registration_date_time": {
+                  "field_descriptor": {
+                    "data_name": "registration_date_time",
+                    "db_name": "registration_date_time",
+                    "field_type": "timestamp",
+                    "name": "registration_date_time",
+                    "ui": {
+                      "display_name": "Registration Date"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "registration_date_time",
+                      "db_name": "registration_date_time",
+                      "field_type": "timestamp",
+                      "name": "registration_date_time"
+                    },
+                    "forward_jq": ".registration_date_time",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "manufacturer": {
+                  "field_descriptor": {
+                    "data_name": "manufacturer",
+                    "db_name": "manufacturer",
+                    "field_type": "text",
+                    "name": "manufacturer",
+                    "ui": {
+                      "display_name": "Manufacturer"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "manufacturer",
+                      "db_name": "manufacturer",
+                      "field_type": "text",
+                      "name": "manufacturer"
+                    },
+                    "forward_jq": ".manufacturer",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "model": {
+                  "field_descriptor": {
+                    "data_name": "model",
+                    "db_name": "model",
+                    "field_type": "text",
+                    "name": "model",
+                    "ui": {
+                      "display_name": "Model"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "model",
+                      "db_name": "model",
+                      "field_type": "text",
+                      "name": "model"
+                    },
+                    "forward_jq": ".model",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "profile_type": {
+                  "field_descriptor": {
+                    "data_name": "profile_type",
+                    "db_name": "profile_type",
+                    "field_type": "text",
+                    "name": "profile_type",
+                    "ui": {
+                      "display_name": "Profile Type"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "profile_type",
+                      "db_name": "profile_type",
+                      "field_type": "text",
+                      "name": "profile_type"
+                    },
+                    "forward_jq": ".profile_type",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "registered_owner_id": {
+                  "field_descriptor": {
+                    "data_name": "registered_owner_id",
+                    "db_name": "registered_owner_id",
+                    "field_type": "text",
+                    "name": "registered_owner_id",
+                    "ui": {
+                      "display_name": "Registered Owner ID"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "registered_owner_id",
+                      "db_name": "registered_owner_id",
+                      "field_type": "text",
+                      "name": "registered_owner_id"
+                    },
+                    "forward_jq": ".registered_owner_id",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "registered_owner_email": {
+                  "field_descriptor": {
+                    "data_name": "registered_owner_email",
+                    "db_name": "registered_owner_email",
+                    "field_type": "text",
+                    "name": "registered_owner_email",
+                    "ui": {
+                      "display_name": "Registered Owner Email"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "registered_owner_email",
+                      "db_name": "registered_owner_email",
+                      "field_type": "text",
+                      "name": "registered_owner_email"
+                    },
+                    "forward_jq": ".registered_owner_email",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
+                },
+                "registered_owner_display_name": {
+                  "field_descriptor": {
+                    "data_name": "registered_owner_display_name",
+                    "db_name": "registered_owner_display_name",
+                    "field_type": "text",
+                    "name": "registered_owner_display_name",
+                    "ui": {
+                      "display_name": "Registered Owner Name"
+                    }
+                  },
+                  "transformation_method": {
+                    "can_apply_to_null": true,
+                    "custom_field_type": {
+                      "data_name": "registered_owner_display_name",
+                      "db_name": "registered_owner_display_name",
+                      "field_type": "text",
+                      "name": "registered_owner_display_name"
+                    },
+                    "forward_jq": ".registered_owner_display_name",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": true
+                  }
                 }
-              }
+              },
+              "devrev_leaf_type": {
+                "object_category": "fresh_custom",
+                "object_type": ""
+              },
+              "mode": "create_shard",
+              "stock_field_mappings": {}
             }
           }
-        }
-      },
+        },
       "org_contacts": {
         "default_mapping": {
           "object_category": "stock",
@@ -523,14 +1081,6 @@
                   "transformation_method_for_set": {
                     "transformation_method": "use_directly"
                   }
-                },
-                "item_url_field": {
-                  "forward": true,
-                  "primary_external_field": "item_url_field",
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "transformation_method": "use_directly"
-                  }
                 }
               }
             }
@@ -538,8 +1088,5 @@
         ]
       }
     }
-  },
-  "_dev_external_system_type": "ADaaS",
-  "_dev_snap_in_slug": "airdrop-azure-entra-id",
-  "_dev_import_slug": "airdrop-azure-entra-id"
+  }
 }

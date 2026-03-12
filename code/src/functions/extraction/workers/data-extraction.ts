@@ -292,57 +292,11 @@ processTask({
       }
 
       // ── 5. Role Members ───────────────────────────────────────────────────
+      // NOTE: Role members are skipped because directory_roles are custom objects,
+      // and DevRev doesn't support object_member relationships with custom objects.
       if (!adapter.state.roleMembers.completed) {
-        try {
-          const roleIds = adapter.state.directoryRoles.ids;
-          let currentIndex = adapter.state.roleMembers.currentParentIndex;
-
-          while (currentIndex < roleIds.length) {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
-
-            const roleId = roleIds[currentIndex];
-            let innerNextLink = adapter.state.roleMembers.currentParentNextLink;
-
-            do {
-              if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
-
-              const page = await client.listRoleMembers(roleId, innerNextLink);
-
-              if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
-
-              const normalized = page.value.map((m) => normalizeRoleMember(m, roleId));
-              await adapter.getRepo(ENTITY_NAMES.ROLE_MEMBERS)?.push(normalized);
-
-              adapter.state.roleMembers.extractedCount += normalized.length;
-              innerNextLink = page['@odata.nextLink'];
-              adapter.state.roleMembers.currentParentNextLink = innerNextLink;
-            } while (innerNextLink);
-
-            currentIndex++;
-            adapter.state.roleMembers.currentParentIndex = currentIndex;
-            adapter.state.roleMembers.currentParentNextLink = undefined;
-          }
-
-          adapter.state.roleMembers.completed = true;
-          console.log(`[data-extraction] Role members extracted: ${adapter.state.roleMembers.extractedCount}`);
-        } catch (error) {
-          if (isRateLimitError(error)) {
-            const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
-          }
-          if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
-            return;
-          }
-          if (isForbiddenError(error)) {
-            console.warn(`[data-extraction] Permission denied for role_members (HTTP 403) — skipping`);
-            adapter.state.roleMembers = { ...adapter.state.roleMembers, completed: true, skipped: true };
-            skippedEntities.push(ENTITY_NAMES.ROLE_MEMBERS);
-          } else {
-            throw error;
-          }
-        }
+        adapter.state.roleMembers.completed = true;
+        console.log(`[data-extraction] Role members extraction skipped (custom objects not supported)`);
       }
 
       // ── 6. Applications ───────────────────────────────────────────────────
@@ -476,6 +430,35 @@ processTask({
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
             const activeItems = page.value.filter((d) => !d['@removed']);
+
+            // NEW: Fetch owner and detailed information for each device
+            for (const device of activeItems) {
+              try {
+                // Get registered owner
+                const ownersPage = await client.listDeviceRegisteredOwners(device.id);
+                if (ownersPage.value.length > 0) {
+                  const owner = ownersPage.value[0];
+                  device.registeredOwnerId = owner.id;
+                  device.registeredOwnerEmail = owner.mail || owner.userPrincipalName;
+                  device.registeredOwnerDisplayName = owner.displayName;
+                }
+              } catch (ownerError) {
+                // Non-fatal: continue without owner info
+                console.warn(`[data-extraction] Could not fetch owner for device ${device.id}`);
+              }
+
+              try {
+                // Get additional device details (manufacturer, model, profileType)
+                const details = await client.getDeviceDetails(device.id);
+                device.manufacturer = details.manufacturer;
+                device.model = details.model;
+                device.profileType = details.profileType;
+              } catch (detailsError) {
+                // Non-fatal: continue without additional details
+                console.warn(`[data-extraction] Could not fetch details for device ${device.id}`);
+              }
+            }
+
             const normalized = activeItems.map((d) => normalizeDevice(d));
             await adapter.getRepo(ENTITY_NAMES.DEVICES)?.push(normalized);
 
