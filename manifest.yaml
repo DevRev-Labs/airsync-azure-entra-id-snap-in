@@ -1,0 +1,39 @@
+version: "2"
+
+name: Azure Entra ID
+description: An Airdrop snap-in for syncing data from Azure Entra ID to DevRev
+
+service_account:
+  display_name: Azure Entra ID Bot
+
+functions:
+  - name: extraction
+    description: Airdrop extraction function for Azure Entra ID
+
+keyring_types:
+  - id: azure-entra-oauth
+    name: Azure Entra ID Connection
+    description: Client credentials connection for Azure Entra ID. Enter your Azure tenant ID as the subdomain, and your app registration client ID and secret.
+    external_system_name: Azure Entra ID
+    kind: "Secret"
+    is_subdomain: true
+    secret_config:
+      secret_transform: '.client_id + "|" + .client_secret'
+      fields:
+        - id: client_id
+          name: Client ID
+          description: Azure AD Application (Client) ID from your app registration
+        - id: client_secret
+          name: Client Secret
+          description: Azure AD Client Secret from your app registration
+      token_verification:
+        url: "https://login.microsoftonline.com/[SUBDOMAIN]/v2.0/.well-known/openid-configuration"
+        method: "GET"
+
+imports:
+  - slug: airdrop-azure-entra-id
+    display_name: Azure Entra ID
+    description: Import data from Azure Entra ID to DevRev
+    extractor_function: extraction
+    allowed_connection_types:
+      - azure-entra-oauth

@@ -1,0 +1,44 @@
+{
+  "context": {
+    "secrets": {
+      "service_account_token": ""
+    },
+    "service_account_id": "don:identity:dvrv-us-1:devo/1:svcacc/9",
+    "dev_oid": "don:identity:dvrv-us-1:devo/1",
+    "snap_in_id": "don:integration:dvrv-us-1:devo/1:snap_in/12345"
+  },
+  "execution_metadata": {
+    "function_name": "extraction",
+    "request_id": "",
+    "devrev_endpoint": "https://api.devrev.ai"
+  },
+  "input_data": {
+    "global_values": {},
+    "event_sources": {},
+    "keyrings": null,
+    "resources": {
+      "keyrings": {},
+      "tags": {}
+    }
+  },
+  "payload": {
+    "connection_data": {
+      "org_id": "your-tenant-id",
+      "org_name": "Your Azure Tenant",
+      "key": "your-access-token",
+      "key_type": "oauth2"
+    },
+    "event_context": {
+      "callback_url": "https://api.devrev.ai/internal/airdrop.external-extractor.message",
+      "dev_org_id": "DEV-1",
+      "dev_user_id": "DEVU-1",
+      "external_system": "azure-entra-id",
+      "external_system_type": "ADaaS",
+      "import_slug": "airdrop-azure-entra-id",
+      "mode": "INITIAL",
+      "external_sync_unit_id": "your-tenant-id",
+      "worker_data_url": "https://api.devrev.ai/internal/airdrop.external-worker"
+    },
+    "event_type": "EXTRACTION_DATA_START"
+  }
+}

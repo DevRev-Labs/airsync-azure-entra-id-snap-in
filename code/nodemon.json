@@ -1,0 +1,7 @@
+{
+  "watch": ["src", "test"],
+  "ext": "ts",
+  "exec": "ts-node",
+  "signal": "SIGTERM",
+  "delay": 1000
+}
