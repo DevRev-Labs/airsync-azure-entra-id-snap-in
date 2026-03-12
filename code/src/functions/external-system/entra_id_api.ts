@@ -144,7 +144,8 @@ export class EntraIDClient {
   }
 
   async listRoleMembers(roleId: string, nextLink?: string): Promise<GraphPagedResponse<EntraDirectoryRoleMember>> {
-    const url = nextLink || `/directoryRoles/${encodeURIComponent(roleId)}/members?$top=${PAGE_SIZE}`;
+    // directoryRoles/{id}/members does NOT support $top — omit it to avoid HTTP 400
+    const url = nextLink || `/directoryRoles/${encodeURIComponent(roleId)}/members`;
     return this.get<GraphPagedResponse<EntraDirectoryRoleMember>>(url);
   }
 
