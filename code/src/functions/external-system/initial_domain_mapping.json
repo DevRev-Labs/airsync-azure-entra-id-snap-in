@@ -1,0 +1,545 @@
+{
+  "additional_mappings": {
+    "format_version": "v0.2.0",
+    "record_type_mappings": {
+      "users": {
+        "default_mapping": {
+          "object_category": "stock",
+          "object_type": "devu"
+        },
+        "possible_record_type_mappings": [
+          {
+            "devrev_leaf_type": "devu",
+            "forward": true,
+            "reverse": false,
+            "shard": {
+              "constructed_custom_fields": {},
+              "devrev_leaf_type": {
+                "object_category": "stock",
+                "object_type": "devu"
+              },
+              "mode": "create_shard",
+              "stock_field_mappings": {
+                "display_name": {
+                  "fallback": { "type": "text", "value": "Unknown User" },
+                  "forward": true,
+                  "primary_external_field": "display_name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "email": {
+                  "forward": true,
+                  "primary_external_field": "email",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "full_name": {
+                  "forward": true,
+                  "primary_external_field": "full_name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "groups": {
+        "default_mapping": {
+          "object_category": "stock",
+          "object_type": "group"
+        },
+        "possible_record_type_mappings": [
+          {
+            "devrev_leaf_type": "group",
+            "forward": true,
+            "reverse": false,
+            "shard": {
+              "constructed_custom_fields": {},
+              "devrev_leaf_type": {
+                "object_category": "stock",
+                "object_type": "group"
+              },
+              "mode": "create_shard",
+              "stock_field_mappings": {
+                "name": {
+                  "fallback": { "type": "text", "value": "Unknown Group" },
+                  "forward": true,
+                  "primary_external_field": "name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "description": {
+                  "fallback": { "type": "rich_text", "value": "No description" },
+                  "forward": true,
+                  "primary_external_field": "description",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_rich_text"
+                  }
+                },
+                "type": {
+                  "forward": true,
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "enum": "static",
+                    "transformation_method": "use_fixed_value",
+                    "value": "enum_value"
+                  }
+                },
+                "item_url_field": {
+                  "forward": true,
+                  "primary_external_field": "item_url_field",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "group_members": {
+        "default_mapping": {
+          "object_category": "stock",
+          "object_type": "object_member"
+        },
+        "possible_record_type_mappings": [
+          {
+            "devrev_leaf_type": "object_member",
+            "forward": true,
+            "reverse": false,
+            "shard": {
+              "constructed_custom_fields": {},
+              "devrev_leaf_type": {
+                "object_category": "stock",
+                "object_type": "object_member"
+              },
+              "mode": "create_shard",
+              "stock_field_mappings": {
+                "member_id": {
+                  "forward": true,
+                  "primary_external_field": "member_id",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "object_id": {
+                  "forward": true,
+                  "primary_external_field": "group_id",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "target_object_type": {
+                  "forward": true,
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "enum": "group",
+                    "transformation_method": "use_fixed_value",
+                    "value": "enum_value"
+                  }
+                },
+                "valid_from_date": {
+                  "forward": true,
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "can_apply_to_null": true,
+                    "forward_jq": "now | todate",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": false
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "directory_roles": {
+        "default_mapping": {
+          "object_category": "stock",
+          "object_type": "group"
+        },
+        "possible_record_type_mappings": [
+          {
+            "devrev_leaf_type": "group",
+            "forward": true,
+            "reverse": false,
+            "shard": {
+              "constructed_custom_fields": {},
+              "devrev_leaf_type": {
+                "object_category": "stock",
+                "object_type": "group"
+              },
+              "mode": "create_shard",
+              "stock_field_mappings": {
+                "name": {
+                  "fallback": { "type": "text", "value": "Unknown Role" },
+                  "forward": true,
+                  "primary_external_field": "name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "description": {
+                  "fallback": { "type": "rich_text", "value": "No description" },
+                  "forward": true,
+                  "primary_external_field": "description",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_rich_text"
+                  }
+                },
+                "type": {
+                  "forward": true,
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "enum": "static",
+                    "transformation_method": "use_fixed_value",
+                    "value": "enum_value"
+                  }
+                },
+                "item_url_field": {
+                  "forward": true,
+                  "primary_external_field": "item_url_field",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "role_members": {
+        "default_mapping": {
+          "object_category": "stock",
+          "object_type": "object_member"
+        },
+        "possible_record_type_mappings": [
+          {
+            "devrev_leaf_type": "object_member",
+            "forward": true,
+            "reverse": false,
+            "shard": {
+              "constructed_custom_fields": {},
+              "devrev_leaf_type": {
+                "object_category": "stock",
+                "object_type": "object_member"
+              },
+              "mode": "create_shard",
+              "stock_field_mappings": {
+                "member_id": {
+                  "forward": true,
+                  "primary_external_field": "member_id",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "object_id": {
+                  "forward": true,
+                  "primary_external_field": "role_id",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "target_object_type": {
+                  "forward": true,
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "enum": "group",
+                    "transformation_method": "use_fixed_value",
+                    "value": "enum_value"
+                  }
+                },
+                "valid_from_date": {
+                  "forward": true,
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "can_apply_to_null": true,
+                    "forward_jq": "now | todate",
+                    "transformation_method": "use_raw_jq",
+                    "use_primary_input": false
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "applications": {
+        "default_mapping": {
+          "object_category": "fresh_custom",
+          "object_type": ""
+        },
+        "mapping_as_custom_object": {
+          "forward": true,
+          "reverse": false,
+          "shard": {
+            "constructed_custom_fields": {
+              "ext_object_type": {
+                "field_descriptor": {
+                  "allowed_values": ["Application"],
+                  "data_name": "ext_object_type",
+                  "db_name": "ext_object_type",
+                  "default_value": "Application",
+                  "description": "The source object type that the item was created from.",
+                  "field_type": "enum",
+                  "is_required": true,
+                  "name": "ext_object_type",
+                  "oasis": { "name": "ext_object_type" },
+                  "ui": {
+                    "display_name": "External Object Type",
+                    "is_hidden_during_create": true,
+                    "is_read_only": true
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": false,
+                  "custom_field_type": {
+                    "allowed_values": ["Application"],
+                    "data_name": "dummy name",
+                    "db_name": "dummy name",
+                    "field_type": "enum",
+                    "name": "dummy name",
+                    "oasis": { "name": "dummy name" }
+                  },
+                  "forward_jq": "\"Application\"",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": false
+                }
+              }
+            },
+            "devrev_leaf_type": {
+              "object_category": "fresh_custom",
+              "object_type": ""
+            },
+            "mode": "create_shard",
+            "stock_field_mappings": {
+              "title": {
+                "forward": true,
+                "primary_external_field": "display_name",
+                "reverse": false,
+                "transformation_method_for_set": {
+                  "transformation_method": "use_directly"
+                }
+              },
+              "item_url_field": {
+                "forward": true,
+                "primary_external_field": "item_url_field",
+                "reverse": false,
+                "transformation_method_for_set": {
+                  "transformation_method": "use_directly"
+                }
+              }
+            }
+          }
+        }
+      },
+      "service_principals": {
+        "default_mapping": {
+          "object_category": "fresh_custom",
+          "object_type": ""
+        },
+        "mapping_as_custom_object": {
+          "forward": true,
+          "reverse": false,
+          "shard": {
+            "constructed_custom_fields": {
+              "ext_object_type": {
+                "field_descriptor": {
+                  "allowed_values": ["ServicePrincipal"],
+                  "data_name": "ext_object_type",
+                  "db_name": "ext_object_type",
+                  "default_value": "ServicePrincipal",
+                  "description": "The source object type that the item was created from.",
+                  "field_type": "enum",
+                  "is_required": true,
+                  "name": "ext_object_type",
+                  "oasis": { "name": "ext_object_type" },
+                  "ui": {
+                    "display_name": "External Object Type",
+                    "is_hidden_during_create": true,
+                    "is_read_only": true
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": false,
+                  "custom_field_type": {
+                    "allowed_values": ["ServicePrincipal"],
+                    "data_name": "dummy name",
+                    "db_name": "dummy name",
+                    "field_type": "enum",
+                    "name": "dummy name",
+                    "oasis": { "name": "dummy name" }
+                  },
+                  "forward_jq": "\"ServicePrincipal\"",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": false
+                }
+              }
+            },
+            "devrev_leaf_type": {
+              "object_category": "fresh_custom",
+              "object_type": ""
+            },
+            "mode": "create_shard",
+            "stock_field_mappings": {
+              "title": {
+                "forward": true,
+                "primary_external_field": "display_name",
+                "reverse": false,
+                "transformation_method_for_set": {
+                  "transformation_method": "use_directly"
+                }
+              },
+              "item_url_field": {
+                "forward": true,
+                "primary_external_field": "item_url_field",
+                "reverse": false,
+                "transformation_method_for_set": {
+                  "transformation_method": "use_directly"
+                }
+              }
+            }
+          }
+        }
+      },
+      "devices": {
+        "default_mapping": {
+          "object_category": "fresh_custom",
+          "object_type": ""
+        },
+        "mapping_as_custom_object": {
+          "forward": true,
+          "reverse": false,
+          "shard": {
+            "constructed_custom_fields": {
+              "ext_object_type": {
+                "field_descriptor": {
+                  "allowed_values": ["Device"],
+                  "data_name": "ext_object_type",
+                  "db_name": "ext_object_type",
+                  "default_value": "Device",
+                  "description": "The source object type that the item was created from.",
+                  "field_type": "enum",
+                  "is_required": true,
+                  "name": "ext_object_type",
+                  "oasis": { "name": "ext_object_type" },
+                  "ui": {
+                    "display_name": "External Object Type",
+                    "is_hidden_during_create": true,
+                    "is_read_only": true
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": false,
+                  "custom_field_type": {
+                    "allowed_values": ["Device"],
+                    "data_name": "dummy name",
+                    "db_name": "dummy name",
+                    "field_type": "enum",
+                    "name": "dummy name",
+                    "oasis": { "name": "dummy name" }
+                  },
+                  "forward_jq": "\"Device\"",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": false
+                }
+              }
+            },
+            "devrev_leaf_type": {
+              "object_category": "fresh_custom",
+              "object_type": ""
+            },
+            "mode": "create_shard",
+            "stock_field_mappings": {
+              "title": {
+                "forward": true,
+                "primary_external_field": "display_name",
+                "reverse": false,
+                "transformation_method_for_set": {
+                  "transformation_method": "use_directly"
+                }
+              }
+            }
+          }
+        }
+      },
+      "org_contacts": {
+        "default_mapping": {
+          "object_category": "stock",
+          "object_type": "revu"
+        },
+        "possible_record_type_mappings": [
+          {
+            "devrev_leaf_type": "revu",
+            "forward": true,
+            "reverse": false,
+            "shard": {
+              "constructed_custom_fields": {},
+              "devrev_leaf_type": {
+                "object_category": "stock",
+                "object_type": "revu"
+              },
+              "mode": "create_shard",
+              "stock_field_mappings": {
+                "display_name": {
+                  "fallback": { "type": "text", "value": "Unknown Contact" },
+                  "forward": true,
+                  "primary_external_field": "display_name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "email": {
+                  "forward": true,
+                  "primary_external_field": "email",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "full_name": {
+                  "forward": true,
+                  "primary_external_field": "full_name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                },
+                "item_url_field": {
+                  "forward": true,
+                  "primary_external_field": "item_url_field",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "_dev_external_system_type": "ADaaS",
+  "_dev_snap_in_slug": "airdrop-azure-entra-id",
+  "_dev_import_slug": "airdrop-azure-entra-id"
+}
