@@ -11,6 +11,16 @@ import {
   EntraServicePrincipal,
   EntraUser,
   GraphPagedResponse,
+  EntraAppRole,
+  EntraAppRoleAssignment,
+  EntraAuthenticationMethod,
+  EntraAuthenticationMethodsPolicy,
+  EntraLicenseDetails,
+  EntraPIMRoleEligibilitySchedule,
+  EntraConditionalAccessPolicy,
+  EntraLifecycleWorkflow,
+  EntraDirectoryAudit,
+  EntraSignIn,
 } from './types';
 import {
   DEFAULT_RATE_LIMIT_DELAY_SECONDS,
@@ -224,5 +234,91 @@ export class EntraIDClient {
   async getUserPhoneDetails(userId: string): Promise<EntraUser> {
     const url = `/users/${encodeURIComponent(userId)}?$select=id,mobilePhone,businessPhones`;
     return this.get<EntraUser>(url);
+  }
+
+  // ── NEW ENTITIES: App Roles & Assignments ──────────────────────────────────
+
+  async listAppRoles(servicePrincipalId: string): Promise<EntraAppRole[]> {
+    const url = `/servicePrincipals/${encodeURIComponent(servicePrincipalId)}?$select=appRoles`;
+    const response = await this.get<{ appRoles: EntraAppRole[] }>(url);
+    return response.appRoles || [];
+  }
+
+  async listAppRoleAssignments(
+    servicePrincipalId: string,
+    nextLink?: string
+  ): Promise<GraphPagedResponse<EntraAppRoleAssignment>> {
+    const url = nextLink || `/servicePrincipals/${encodeURIComponent(servicePrincipalId)}/appRoleAssignedTo?$top=${PAGE_SIZE}`;
+    return this.get<GraphPagedResponse<EntraAppRoleAssignment>>(url);
+  }
+
+  // ── NEW ENTITIES: Authentication Methods ───────────────────────────────────
+
+  async listAuthenticationMethods(userId: string): Promise<GraphPagedResponse<EntraAuthenticationMethod>> {
+    const url = `/users/${encodeURIComponent(userId)}/authentication/methods`;
+    return this.get<GraphPagedResponse<EntraAuthenticationMethod>>(url);
+  }
+
+  async getAuthenticationMethodsPolicy(): Promise<EntraAuthenticationMethodsPolicy> {
+    const url = `/policies/authenticationMethodsPolicy`;
+    return this.get<EntraAuthenticationMethodsPolicy>(url);
+  }
+
+  // ── NEW ENTITIES: License Assignments ──────────────────────────────────────
+
+  async listLicenseDetails(userId: string): Promise<GraphPagedResponse<EntraLicenseDetails>> {
+    const url = `/users/${encodeURIComponent(userId)}/licenseDetails`;
+    return this.get<GraphPagedResponse<EntraLicenseDetails>>(url);
+  }
+
+  // ── NEW ENTITIES: PIM Eligible Roles ───────────────────────────────────────
+
+  async listPIMEligibleRoles(
+    nextLink?: string
+  ): Promise<GraphPagedResponse<EntraPIMRoleEligibilitySchedule>> {
+    const url = nextLink || `/roleManagement/directory/roleEligibilitySchedules?$top=${PAGE_SIZE}`;
+    return this.get<GraphPagedResponse<EntraPIMRoleEligibilitySchedule>>(url);
+  }
+
+  // ── NEW ENTITIES: Conditional Access Policies ──────────────────────────────
+
+  async listConditionalAccessPolicies(
+    nextLink?: string
+  ): Promise<GraphPagedResponse<EntraConditionalAccessPolicy>> {
+    const url = nextLink || `/identity/conditionalAccess/policies?$top=${PAGE_SIZE}`;
+    return this.get<GraphPagedResponse<EntraConditionalAccessPolicy>>(url);
+  }
+
+  // ── NEW ENTITIES: Lifecycle Workflows ──────────────────────────────────────
+
+  async listLifecycleWorkflows(
+    nextLink?: string
+  ): Promise<GraphPagedResponse<EntraLifecycleWorkflow>> {
+    const url = nextLink || `/identityGovernance/lifecycleWorkflows/workflows?$top=${PAGE_SIZE}`;
+    return this.get<GraphPagedResponse<EntraLifecycleWorkflow>>(url);
+  }
+
+  // ── NEW ENTITIES: Directory Audit Logs ─────────────────────────────────────
+
+  async listDirectoryAudits(
+    startDateTime: string,
+    nextLink?: string
+  ): Promise<GraphPagedResponse<EntraDirectoryAudit>> {
+    const url =
+      nextLink ||
+      `/auditLogs/directoryAudits?$filter=activityDateTime ge ${encodeURIComponent(startDateTime)}&$top=${PAGE_SIZE}&$orderby=activityDateTime desc`;
+    return this.get<GraphPagedResponse<EntraDirectoryAudit>>(url);
+  }
+
+  // ── NEW ENTITIES: Sign-In Logs ─────────────────────────────────────────────
+
+  async listSignIns(
+    startDateTime: string,
+    nextLink?: string
+  ): Promise<GraphPagedResponse<EntraSignIn>> {
+    const url =
+      nextLink ||
+      `/auditLogs/signIns?$filter=createdDateTime ge ${encodeURIComponent(startDateTime)}&$top=${PAGE_SIZE}&$orderby=createdDateTime desc`;
+    return this.get<GraphPagedResponse<EntraSignIn>>(url);
   }
 }

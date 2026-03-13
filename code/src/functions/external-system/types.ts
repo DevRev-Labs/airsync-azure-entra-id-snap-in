@@ -120,3 +120,160 @@ export interface EntraExtensionProperty {
   targetObjects: string[];
   appDisplayName?: string | null;
 }
+
+// NEW: App Roles (Entitlements)
+export interface EntraAppRole {
+  id: string;
+  displayName: string | null;
+  description: string | null;
+  value: string | null;
+  isEnabled: boolean | null;
+  allowedMemberTypes: string[];
+}
+
+// NEW: App Role Assignments
+export interface EntraAppRoleAssignment {
+  id: string;
+  principalId: string;
+  principalType: string | null;
+  principalDisplayName: string | null;
+  resourceId: string;
+  resourceDisplayName: string | null;
+  appRoleId: string;
+  createdDateTime: string | null;
+}
+
+// NEW: Authentication Methods
+export interface EntraAuthenticationMethod {
+  id: string;
+  '@odata.type': string;
+  displayName?: string | null;
+  deviceTag?: string | null;
+  phoneAppVersion?: string | null;
+  phoneNumber?: string | null;
+  phoneType?: string | null;
+  createdDateTime?: string | null;
+}
+
+// NEW: Authentication Methods Policy
+export interface EntraAuthenticationMethodsPolicy {
+  id: string;
+  displayName: string | null;
+  registrationEnforcement: Record<string, unknown> | null;
+  authenticationMethodConfigurations: Array<Record<string, unknown>>;
+}
+
+// NEW: License Details
+export interface EntraLicenseDetails {
+  id: string;
+  skuId: string;
+  skuPartNumber: string | null;
+  servicePlans: Array<{
+    servicePlanId: string;
+    servicePlanName: string | null;
+    provisioningStatus: string | null;
+  }>;
+}
+
+// NEW: PIM Role Eligibility Schedule
+export interface EntraPIMRoleEligibilitySchedule {
+  id: string;
+  principalId: string;
+  roleDefinitionId: string;
+  directoryScopeId: string | null;
+  scheduleInfo: {
+    startDateTime: string | null;
+    expiration: Record<string, unknown> | null;
+  } | null;
+  status: string | null;
+  createdDateTime?: string | null;
+}
+
+// NEW: Conditional Access Policy
+export interface EntraConditionalAccessPolicy {
+  id: string;
+  displayName: string | null;
+  state: string | null;
+  conditions: Record<string, unknown> | null;
+  grantControls: Record<string, unknown> | null;
+  sessionControls: Record<string, unknown> | null;
+  createdDateTime: string | null;
+  modifiedDateTime: string | null;
+}
+
+// NEW: Lifecycle Workflow
+export interface EntraLifecycleWorkflow {
+  id: string;
+  displayName: string | null;
+  description: string | null;
+  category: string | null;
+  isEnabled: boolean | null;
+  executionConditions: Record<string, unknown> | null;
+  tasks: Array<Record<string, unknown>>;
+  createdDateTime: string | null;
+  lastModifiedDateTime: string | null;
+}
+
+// NEW: Directory Audit Log
+export interface EntraDirectoryAudit {
+  id: string;
+  activityDateTime: string;
+  activityDisplayName: string | null;
+  category: string | null;
+  result: string | null;
+  resultReason: string | null;
+  initiatedBy: {
+    user?: { id?: string; displayName?: string; userPrincipalName?: string } | null;
+    app?: { appId?: string; displayName?: string } | null;
+  } | null;
+  targetResources: Array<{
+    id?: string;
+    displayName?: string;
+    type?: string;
+    userPrincipalName?: string;
+    groupType?: string | null;
+    modifiedProperties?: Array<Record<string, unknown>>;
+  }>;
+  additionalDetails: Array<{
+    key?: string;
+    value?: string;
+  }>;
+}
+
+// NEW: Sign-In Log
+export interface EntraSignIn {
+  id: string;
+  createdDateTime: string;
+  userPrincipalName: string | null;
+  userId: string | null;
+  userDisplayName: string | null;
+  appDisplayName: string | null;
+  appId: string | null;
+  ipAddress: string | null;
+  clientAppUsed: string | null;
+  status: {
+    errorCode?: number;
+    failureReason?: string | null;
+    additionalDetails?: string | null;
+  } | null;
+  location: {
+    city?: string | null;
+    state?: string | null;
+    countryOrRegion?: string | null;
+    geoCoordinates?: { latitude?: number; longitude?: number } | null;
+  } | null;
+  deviceDetail: {
+    deviceId?: string | null;
+    displayName?: string | null;
+    operatingSystem?: string | null;
+    browser?: string | null;
+    isCompliant?: boolean | null;
+    isManaged?: boolean | null;
+    trustType?: string | null;
+  } | null;
+  conditionalAccessStatus: string | null;
+  riskDetail: string | null;
+  riskLevelAggregated: string | null;
+  riskLevelDuringSignIn: string | null;
+  riskState: string | null;
+}

@@ -249,6 +249,579 @@
           "type": "text"
         }
       }
+    },
+    "app_roles": {
+      "name": "App Roles",
+      "fields": {
+        "app_role_id": {
+          "name": "App Role ID",
+          "type": "text",
+          "is_identifier": true
+        },
+        "service_principal_id": {
+          "name": "Service Principal ID",
+          "type": "reference",
+          "reference": {
+            "refers_to": {
+              "#record:service_principals": {}
+            }
+          }
+        },
+        "display_name": {
+          "name": "Display Name",
+          "type": "text",
+          "is_indexed": true
+        },
+        "description": {
+          "name": "Description",
+          "type": "text"
+        },
+        "value": {
+          "name": "Role Value",
+          "type": "text"
+        },
+        "is_enabled": {
+          "name": "Enabled",
+          "type": "bool"
+        },
+        "allowed_member_types": {
+          "name": "Allowed Member Types",
+          "type": "text"
+        }
+      }
+    },
+    "app_role_assignments": {
+      "name": "App Role Assignments",
+      "fields": {
+        "principal_id": {
+          "name": "Principal ID",
+          "type": "text",
+          "is_indexed": true
+        },
+        "principal_type": {
+          "name": "Principal Type",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "User", "name": "User" },
+              { "key": "Group", "name": "Group" },
+              { "key": "ServicePrincipal", "name": "Service Principal" }
+            ]
+          }
+        },
+        "principal_display_name": {
+          "name": "Principal Name",
+          "type": "text",
+          "is_indexed": true
+        },
+        "resource_id": {
+          "name": "Resource (Service Principal) ID",
+          "type": "reference",
+          "reference": {
+            "refers_to": {
+              "#record:service_principals": {}
+            }
+          }
+        },
+        "resource_display_name": {
+          "name": "Resource Name",
+          "type": "text"
+        },
+        "app_role_id": {
+          "name": "App Role ID",
+          "type": "text"
+        }
+      }
+    },
+    "authentication_methods": {
+      "name": "Authentication Methods",
+      "fields": {
+        "user_id": {
+          "name": "User",
+          "type": "reference",
+          "reference": {
+            "refers_to": {
+              "#record:users": {}
+            }
+          }
+        },
+        "method_id": {
+          "name": "Method ID",
+          "type": "text"
+        },
+        "method_type": {
+          "name": "Method Type",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "microsoftAuthenticatorAuthenticationMethod", "name": "Microsoft Authenticator" },
+              { "key": "fido2AuthenticationMethod", "name": "FIDO2 Security Key" },
+              { "key": "phoneAuthenticationMethod", "name": "Phone/SMS" },
+              { "key": "passwordAuthenticationMethod", "name": "Password" },
+              { "key": "temporaryAccessPassAuthenticationMethod", "name": "Temporary Access Pass" },
+              { "key": "windowsHelloForBusinessAuthenticationMethod", "name": "Windows Hello" },
+              { "key": "emailAuthenticationMethod", "name": "Email" },
+              { "key": "softwareOathAuthenticationMethod", "name": "Software OATH Token" }
+            ]
+          }
+        },
+        "display_name": {
+          "name": "Device/Method Name",
+          "type": "text"
+        },
+        "device_tag": {
+          "name": "Device Tag",
+          "type": "text"
+        },
+        "phone_app_version": {
+          "name": "Phone App Version",
+          "type": "text"
+        },
+        "phone_number": {
+          "name": "Phone Number",
+          "type": "text"
+        },
+        "phone_type": {
+          "name": "Phone Type",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "mobile", "name": "Mobile" },
+              { "key": "alternateMobile", "name": "Alternate Mobile" },
+              { "key": "office", "name": "Office" }
+            ]
+          }
+        }
+      }
+    },
+    "authentication_methods_policy": {
+      "name": "Authentication Methods Policy",
+      "fields": {
+        "display_name": {
+          "name": "Policy Name",
+          "type": "text"
+        },
+        "registration_enforcement": {
+          "name": "Registration Enforcement",
+          "type": "rich_text"
+        },
+        "authentication_method_configurations": {
+          "name": "Method Configurations",
+          "type": "rich_text"
+        }
+      }
+    },
+    "license_assignments": {
+      "name": "License Assignments",
+      "fields": {
+        "user_id": {
+          "name": "User",
+          "type": "reference",
+          "reference": {
+            "refers_to": {
+              "#record:users": {}
+            }
+          }
+        },
+        "sku_id": {
+          "name": "SKU ID",
+          "type": "text",
+          "is_identifier": true
+        },
+        "sku_part_number": {
+          "name": "License Name",
+          "type": "text",
+          "is_indexed": true
+        },
+        "active_service_plans": {
+          "name": "Active Service Plans",
+          "type": "text",
+          "is_indexed": true
+        },
+        "service_plans": {
+          "name": "Service Plans (Full)",
+          "type": "rich_text"
+        }
+      }
+    },
+    "pim_eligible_roles": {
+      "name": "PIM Eligible Roles",
+      "fields": {
+        "principal_id": {
+          "name": "Principal (User/Group) ID",
+          "type": "text",
+          "is_indexed": true
+        },
+        "role_definition_id": {
+          "name": "Role Definition ID",
+          "type": "text",
+          "is_indexed": true
+        },
+        "directory_scope_id": {
+          "name": "Scope",
+          "type": "text"
+        },
+        "schedule_start_date_time": {
+          "name": "Start Date",
+          "type": "timestamp",
+          "is_indexed": true
+        },
+        "schedule_info": {
+          "name": "Schedule Info (Full)",
+          "type": "rich_text"
+        },
+        "status": {
+          "name": "Status",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "Provisioned", "name": "Provisioned" },
+              { "key": "Pending", "name": "Pending" },
+              { "key": "Failed", "name": "Failed" },
+              { "key": "Revoked", "name": "Revoked" }
+            ]
+          }
+        }
+      }
+    },
+    "conditional_access_policies": {
+      "name": "Conditional Access Policies",
+      "fields": {
+        "display_name": {
+          "name": "Policy Name",
+          "type": "text",
+          "is_indexed": true
+        },
+        "state": {
+          "name": "State",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "enabled", "name": "Enabled" },
+              { "key": "disabled", "name": "Disabled" },
+              { "key": "enabledForReportingButNotEnforced", "name": "Report-only" }
+            ]
+          }
+        },
+        "conditions": {
+          "name": "Conditions",
+          "type": "rich_text"
+        },
+        "grant_controls": {
+          "name": "Grant Controls",
+          "type": "rich_text"
+        },
+        "session_controls": {
+          "name": "Session Controls",
+          "type": "rich_text"
+        },
+        "item_url_field": {
+          "name": "Entra Portal URL",
+          "type": "text"
+        }
+      }
+    },
+    "lifecycle_workflows": {
+      "name": "Lifecycle Workflows",
+      "fields": {
+        "display_name": {
+          "name": "Workflow Name",
+          "type": "text",
+          "is_indexed": true
+        },
+        "description": {
+          "name": "Description",
+          "type": "text"
+        },
+        "category": {
+          "name": "Category",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "joiner", "name": "Joiner (Onboarding)" },
+              { "key": "mover", "name": "Mover (Role Change)" },
+              { "key": "leaver", "name": "Leaver (Offboarding)" }
+            ]
+          }
+        },
+        "is_enabled": {
+          "name": "Enabled",
+          "type": "bool"
+        },
+        "execution_conditions": {
+          "name": "Execution Conditions",
+          "type": "rich_text"
+        },
+        "tasks": {
+          "name": "Tasks",
+          "type": "rich_text"
+        }
+      }
+    },
+    "directory_audit_logs": {
+      "name": "Directory Audit Logs",
+      "fields": {
+        "activity_date_time": {
+          "name": "Activity Date",
+          "type": "timestamp",
+          "is_indexed": true
+        },
+        "activity_display_name": {
+          "name": "Activity",
+          "type": "text",
+          "is_indexed": true
+        },
+        "category": {
+          "name": "Category",
+          "type": "text",
+          "is_indexed": true
+        },
+        "result": {
+          "name": "Result",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "success", "name": "Success" },
+              { "key": "failure", "name": "Failure" }
+            ]
+          }
+        },
+        "result_reason": {
+          "name": "Result Reason",
+          "type": "text"
+        },
+        "initiated_by_user_id": {
+          "name": "Initiated By User ID",
+          "type": "text"
+        },
+        "initiated_by_display_name": {
+          "name": "Initiated By",
+          "type": "text",
+          "is_indexed": true
+        },
+        "initiated_by_app_id": {
+          "name": "Initiated By App ID",
+          "type": "text"
+        },
+        "target_object_id": {
+          "name": "Target Object ID",
+          "type": "text",
+          "is_indexed": true
+        },
+        "target_display_name": {
+          "name": "Target Name",
+          "type": "text",
+          "is_indexed": true
+        },
+        "target_type": {
+          "name": "Target Type",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "User", "name": "User" },
+              { "key": "Group", "name": "Group" },
+              { "key": "ServicePrincipal", "name": "Service Principal" },
+              { "key": "Application", "name": "Application" },
+              { "key": "Device", "name": "Device" },
+              { "key": "DirectoryRole", "name": "Directory Role" },
+              { "key": "Policy", "name": "Policy" },
+              { "key": "Other", "name": "Other" }
+            ]
+          }
+        },
+        "target_user_principal_name": {
+          "name": "Target UPN",
+          "type": "text",
+          "is_indexed": true
+        },
+        "ip_address": {
+          "name": "IP Address",
+          "type": "text",
+          "is_indexed": true
+        },
+        "user_agent": {
+          "name": "User Agent",
+          "type": "text"
+        },
+        "invited_user_email": {
+          "name": "Invited Guest Email",
+          "type": "text",
+          "is_indexed": true
+        },
+        "invitation_id": {
+          "name": "Invitation ID",
+          "type": "text"
+        },
+        "target_resources": {
+          "name": "Target Resources (Full)",
+          "type": "rich_text"
+        },
+        "additional_details": {
+          "name": "Additional Details (Full)",
+          "type": "rich_text"
+        }
+      }
+    },
+    "sign_in_logs": {
+      "name": "Sign-In Logs",
+      "fields": {
+        "created_date_time": {
+          "name": "Sign-In Date",
+          "type": "timestamp",
+          "is_indexed": true
+        },
+        "user_principal_name": {
+          "name": "User Principal Name",
+          "type": "text",
+          "is_indexed": true
+        },
+        "user_id": {
+          "name": "User ID",
+          "type": "text"
+        },
+        "user_display_name": {
+          "name": "User Name",
+          "type": "text",
+          "is_indexed": true
+        },
+        "app_display_name": {
+          "name": "Application",
+          "type": "text",
+          "is_indexed": true
+        },
+        "app_id": {
+          "name": "Application ID",
+          "type": "text"
+        },
+        "ip_address": {
+          "name": "IP Address",
+          "type": "text",
+          "is_indexed": true
+        },
+        "client_app_used": {
+          "name": "Client App",
+          "type": "text"
+        },
+        "status_error_code": {
+          "name": "Status Code",
+          "type": "int"
+        },
+        "status_failure_reason": {
+          "name": "Failure Reason",
+          "type": "text"
+        },
+        "status_additional_details": {
+          "name": "Status Details",
+          "type": "text"
+        },
+        "location_city": {
+          "name": "City",
+          "type": "text",
+          "is_indexed": true
+        },
+        "location_state": {
+          "name": "State/Province",
+          "type": "text"
+        },
+        "location_country": {
+          "name": "Country",
+          "type": "text",
+          "is_indexed": true
+        },
+        "device_id": {
+          "name": "Device ID",
+          "type": "text"
+        },
+        "device_name": {
+          "name": "Device Name",
+          "type": "text"
+        },
+        "device_operating_system": {
+          "name": "Device OS",
+          "type": "text",
+          "is_indexed": true
+        },
+        "device_browser": {
+          "name": "Browser",
+          "type": "text",
+          "is_indexed": true
+        },
+        "device_is_compliant": {
+          "name": "Device Compliant",
+          "type": "bool"
+        },
+        "device_is_managed": {
+          "name": "Device Managed",
+          "type": "bool"
+        },
+        "device_trust_type": {
+          "name": "Device Trust Type",
+          "type": "text"
+        },
+        "location": {
+          "name": "Location (Full)",
+          "type": "rich_text"
+        },
+        "device_detail": {
+          "name": "Device Details (Full)",
+          "type": "rich_text"
+        },
+        "conditional_access_status": {
+          "name": "Conditional Access Status",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "success", "name": "Success" },
+              { "key": "failure", "name": "Failure" },
+              { "key": "notApplied", "name": "Not Applied" }
+            ]
+          }
+        },
+        "risk_detail": {
+          "name": "Risk Detail",
+          "type": "text"
+        },
+        "risk_level_aggregated": {
+          "name": "Risk Level (Aggregated)",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "none", "name": "None" },
+              { "key": "low", "name": "Low" },
+              { "key": "medium", "name": "Medium" },
+              { "key": "high", "name": "High" },
+              { "key": "hidden", "name": "Hidden" }
+            ]
+          }
+        },
+        "risk_level_during_sign_in": {
+          "name": "Risk Level (During Sign-In)",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "none", "name": "None" },
+              { "key": "low", "name": "Low" },
+              { "key": "medium", "name": "Medium" },
+              { "key": "high", "name": "High" },
+              { "key": "hidden", "name": "Hidden" }
+            ]
+          }
+        },
+        "risk_state": {
+          "name": "Risk State",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "none", "name": "None" },
+              { "key": "confirmedSafe", "name": "Confirmed Safe" },
+              { "key": "remediated", "name": "Remediated" },
+              { "key": "dismissed", "name": "Dismissed" },
+              { "key": "atRisk", "name": "At Risk" },
+              { "key": "confirmedCompromised", "name": "Confirmed Compromised" }
+            ]
+          }
+        }
+      }
     }
   }
 }
