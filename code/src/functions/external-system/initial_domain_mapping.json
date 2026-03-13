@@ -86,15 +86,6 @@
                     "transformation_method": "use_rich_text"
                   }
                 },
-                "type": {
-                  "forward": true,
-                  "reverse": false,
-                  "transformation_method_for_set": {
-                    "enum": "static",
-                    "transformation_method": "use_fixed_value",
-                    "value": "enum_value"
-                  }
-                },
                 "item_url_field": {
                   "forward": true,
                   "primary_external_field": "item_url_field",
@@ -284,7 +275,16 @@
                 "object_type": ""
               },
               "mode": "create_shard",
-              "stock_field_mappings": {}
+              "stock_field_mappings": {
+                "title": {
+                  "forward": true,
+                  "primary_external_field": "name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                }
+              }
             }
           }
         },
@@ -327,29 +327,6 @@
                   "use_primary_input": false
                 }
               },
-              "display_name": {
-                  "field_descriptor": {
-                    "data_name": "display_name",
-                    "db_name": "display_name",
-                    "field_type": "text",
-                    "name": "display_name",
-                    "ui": {
-                      "display_name": "Display Name"
-                    }
-                  },
-                  "transformation_method": {
-                    "can_apply_to_null": true,
-                    "custom_field_type": {
-                      "data_name": "display_name",
-                      "db_name": "display_name",
-                      "field_type": "text",
-                      "name": "display_name"
-                    },
-                    "forward_jq": ".display_name",
-                    "transformation_method": "use_raw_jq",
-                    "use_primary_input": true
-                  }
-                },
                 "app_id": {
                   "field_descriptor": {
                     "data_name": "app_id",
@@ -473,7 +450,16 @@
                 "object_type": ""
               },
               "mode": "create_shard",
-              "stock_field_mappings": {}
+              "stock_field_mappings": {
+                "title": {
+                  "forward": true,
+                  "primary_external_field": "display_name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                }
+              }
             }
           }
         },
@@ -516,29 +502,6 @@
                   "use_primary_input": false
                 }
               },
-              "display_name": {
-                  "field_descriptor": {
-                    "data_name": "display_name",
-                    "db_name": "display_name",
-                    "field_type": "text",
-                    "name": "display_name",
-                    "ui": {
-                      "display_name": "Display Name"
-                    }
-                  },
-                  "transformation_method": {
-                    "can_apply_to_null": true,
-                    "custom_field_type": {
-                      "data_name": "display_name",
-                      "db_name": "display_name",
-                      "field_type": "text",
-                      "name": "display_name"
-                    },
-                    "forward_jq": ".display_name",
-                    "transformation_method": "use_raw_jq",
-                    "use_primary_input": true
-                  }
-                },
                 "app_id": {
                   "field_descriptor": {
                     "data_name": "app_id",
@@ -662,7 +625,16 @@
                 "object_type": ""
               },
               "mode": "create_shard",
-              "stock_field_mappings": {}
+              "stock_field_mappings": {
+                "title": {
+                  "forward": true,
+                  "primary_external_field": "display_name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                }
+              }
             }
           }
         },
@@ -705,29 +677,6 @@
                   "use_primary_input": false
                 }
               },
-              "display_name": {
-                  "field_descriptor": {
-                    "data_name": "display_name",
-                    "db_name": "display_name",
-                    "field_type": "text",
-                    "name": "display_name",
-                    "ui": {
-                      "display_name": "Display Name"
-                    }
-                  },
-                  "transformation_method": {
-                    "can_apply_to_null": true,
-                    "custom_field_type": {
-                      "data_name": "display_name",
-                      "db_name": "display_name",
-                      "field_type": "text",
-                      "name": "display_name"
-                    },
-                    "forward_jq": ".display_name",
-                    "transformation_method": "use_raw_jq",
-                    "use_primary_input": true
-                  }
-                },
                 "operating_system": {
                   "field_descriptor": {
                     "data_name": "operating_system",
@@ -1035,7 +984,16 @@
                 "object_type": ""
               },
               "mode": "create_shard",
-              "stock_field_mappings": {}
+              "stock_field_mappings": {
+                "title": {
+                  "forward": true,
+                  "primary_external_field": "display_name",
+                  "reverse": false,
+                  "transformation_method_for_set": {
+                    "transformation_method": "use_directly"
+                  }
+                }
+              }
             }
           }
         },
