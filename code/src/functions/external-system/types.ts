@@ -101,9 +101,6 @@ export interface EntraOrgContact {
   mail: string | null;
   givenName: string | null;
   surname: string | null;
-  jobTitle: string | null;
-  department: string | null;
-  companyName: string | null;
   createdDateTime?: string | null;
   '@removed'?: { reason: string };
 }
