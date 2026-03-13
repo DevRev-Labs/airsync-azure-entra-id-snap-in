@@ -41,3 +41,8 @@ coverage/
 .cache/
 .parcel-cache/
 .eslintcache
+
+# Build artifacts
+*.tar.gz
+*.tgz
+*.zip

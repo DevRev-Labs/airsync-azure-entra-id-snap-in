@@ -159,8 +159,24 @@ export interface EntraAuthenticationMethod {
 export interface EntraAuthenticationMethodsPolicy {
   id: string;
   displayName: string | null;
-  registrationEnforcement: Record<string, unknown> | null;
-  authenticationMethodConfigurations: Array<Record<string, unknown>>;
+  registrationEnforcement: {
+    authenticationMethodsRegistrationCampaign?: {
+      snoozeDurationInDays?: number;
+      state?: string;
+      excludeTargets?: Array<unknown>;
+      includeTargets?: Array<{
+        id?: string;
+        targetType?: string;
+        targetedAuthenticationMethod?: string;
+      }>;
+    };
+  } | null;
+  authenticationMethodConfigurations: Array<{
+    '@odata.type'?: string;
+    id?: string;
+    state?: string;
+    [key: string]: unknown;
+  }>;
 }
 
 // NEW: License Details
