@@ -21,4 +21,15 @@ export const ENTITY_NAMES = {
   DEVICES: 'devices',
   ORG_CONTACTS: 'org_contacts',
   EXTERNAL_DOMAIN_METADATA: 'external_domain_metadata',
+  // NEW ENTITIES
+  APP_ROLES: 'app_roles',
+  APP_ROLE_ASSIGNMENTS: 'app_role_assignments',
+  AUTHENTICATION_METHODS: 'authentication_methods',
+  AUTHENTICATION_METHODS_POLICY: 'authentication_methods_policy',
+  LICENSE_ASSIGNMENTS: 'license_assignments',
+  PIM_ELIGIBLE_ROLES: 'pim_eligible_roles',
+  CONDITIONAL_ACCESS_POLICIES: 'conditional_access_policies',
+  LIFECYCLE_WORKFLOWS: 'lifecycle_workflows',
+  DIRECTORY_AUDIT_LOGS: 'directory_audit_logs',
+  SIGN_IN_LOGS: 'sign_in_logs',
 } as const;

@@ -21,6 +21,10 @@ export function isForbiddenError(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 403;
 }
 
+export function isBadRequestError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 400;
+}
+
 export function isDeltaExpiredError(error: unknown): boolean {
   if (axios.isAxiosError(error)) {
     if (error.response?.status === 410) return true;

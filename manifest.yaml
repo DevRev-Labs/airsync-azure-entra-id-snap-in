@@ -1,19 +1,49 @@
 version: "2"
 
 name: Azure Entra ID
-description: An Airdrop snap-in for syncing data from Azure Entra ID to DevRev
+description: |
+  Comprehensive identity and access sync from Microsoft Entra ID to DevRev.
+
+  Syncs: Users, Groups, Applications, Service Principals, Devices, Directory Roles,
+  App Roles & Assignments, Authentication Methods, MFA Policies, Licenses,
+  PIM Eligible Roles, Conditional Access Policies, Lifecycle Workflows,
+  Directory Audit Logs, and Sign-In Logs.
+
+  Required Microsoft Graph API Permissions (grant in Azure AD app registration):
+  - User.Read.All (users and profiles)
+  - Group.Read.All (groups)
+  - GroupMember.Read.All (group memberships)
+  - Application.Read.All (applications)
+  - RoleManagement.Read.Directory (directory roles)
+  - Device.Read.All (devices)
+  - OrgContact.Read.All (organizational contacts)
+  - Policy.Read.All (authentication methods policy, Conditional Access)
+  - Organization.Read.All (license SKU catalog)
+  - AuditLog.Read.All (directory audit logs, sign-in logs)
+  - LifecycleWorkflows.Read.All (optional - Entra ID Governance required)
+  - RoleEligibilitySchedule.Read.Directory (optional - Entra ID P2 required)
 
 service_account:
   display_name: Azure Entra ID Bot
 
 functions:
   - name: extraction
-    description: Airdrop extraction function for Azure Entra ID
+    description: Airdrop extraction function for Azure Entra ID (19 entity types)
 
 keyring_types:
   - id: azure-entra-oauth
     name: Azure Entra ID Connection
-    description: Client credentials connection for Azure Entra ID. Enter your Azure tenant ID as the subdomain, and your app registration client ID and secret.
+    description: |
+      Client credentials connection for Azure Entra ID using an Azure AD app registration.
+
+      Setup:
+      1. In Azure Portal, create an App Registration
+      2. Grant the required Microsoft Graph API permissions (see connector description)
+      3. Grant tenant admin consent for all permissions
+      4. Create a client secret
+      5. Enter your Azure Tenant ID (subdomain), Client ID, and Client Secret below
+
+      The connector will gracefully skip entities if permissions are missing.
     external_system_name: Azure Entra ID
     kind: "Secret"
     is_subdomain: true
@@ -33,7 +63,17 @@ keyring_types:
 imports:
   - slug: airdrop-azure-entra-id
     display_name: Azure Entra ID
-    description: Import data from Azure Entra ID to DevRev
+    description: |
+      Import identity and access data from Microsoft Entra ID to DevRev.
+
+      Syncs 19 entity types: Users, Groups, Applications, Service Principals, Devices,
+      Directory Roles, App Roles & Assignments, Authentication Methods, MFA Policies,
+      Licenses, PIM Roles, Conditional Access Policies, Lifecycle Workflows, Audit Logs,
+      and Sign-In Logs.
+
+      Supports incremental sync via Microsoft Graph delta queries. Gracefully handles
+      missing permissions and license requirements (PIM requires P2, Lifecycle Workflows
+      require Governance).
     extractor_function: extraction
     allowed_connection_types:
       - azure-entra-oauth

@@ -24,9 +24,21 @@ export interface State {
   directoryRoles: EntityStateWithIds;
   roleMembers: NestedEntityState;
   applications: EntityState;
-  servicePrincipals: EntityState;
+  servicePrincipals: EntityStateWithIds;
   devices: EntityState;
   orgContacts: EntityState;
+
+  // NEW ENTITIES
+  appRoles: NestedEntityState;
+  appRoleAssignments: NestedEntityState;
+  authenticationMethods: NestedEntityState;
+  authenticationMethodsPolicy: EntityState;
+  licenseAssignments: NestedEntityState;
+  pimEligibleRoles: EntityState;
+  conditionalAccessPolicies: EntityState;
+  lifecycleWorkflows: EntityState;
+  directoryAuditLogs: EntityState;
+  signInLogs: EntityState;
 
   // Delta links stored after each successful full sync, used for incremental sync
   deltaLinks: {
@@ -42,6 +54,8 @@ export interface State {
   // Incremental sync timestamps
   lastSyncStarted?: string;
   lastSuccessfulSyncStarted?: string;
+  lastAuditLogSync?: string;
+  lastSignInLogSync?: string;
 }
 
 export function getInitialState(): State {
@@ -52,9 +66,20 @@ export function getInitialState(): State {
     directoryRoles: { completed: false, extractedCount: 0, ids: [] },
     roleMembers: { completed: false, currentParentIndex: 0, extractedCount: 0 },
     applications: { completed: false, extractedCount: 0 },
-    servicePrincipals: { completed: false, extractedCount: 0 },
+    servicePrincipals: { completed: false, extractedCount: 0, ids: [] },
     devices: { completed: false, extractedCount: 0 },
     orgContacts: { completed: false, extractedCount: 0 },
+    // NEW ENTITIES
+    appRoles: { completed: false, currentParentIndex: 0, extractedCount: 0 },
+    appRoleAssignments: { completed: false, currentParentIndex: 0, extractedCount: 0 },
+    authenticationMethods: { completed: false, currentParentIndex: 0, extractedCount: 0 },
+    authenticationMethodsPolicy: { completed: false, extractedCount: 0 },
+    licenseAssignments: { completed: false, currentParentIndex: 0, extractedCount: 0 },
+    pimEligibleRoles: { completed: false, extractedCount: 0 },
+    conditionalAccessPolicies: { completed: false, extractedCount: 0 },
+    lifecycleWorkflows: { completed: false, extractedCount: 0 },
+    directoryAuditLogs: { completed: false, extractedCount: 0 },
+    signInLogs: { completed: false, extractedCount: 0 },
     deltaLinks: {},
   };
 }
