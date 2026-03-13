@@ -25,12 +25,6 @@ export function normalizeUser(user: EntraUser): NormalizedItem {
     display_name: user.displayName,
     email: user.mail || user.userPrincipalName,
     full_name: fullName,
-    user_principal_name: user.userPrincipalName,
-    job_title: user.jobTitle,
-    department: user.department,
-    office_location: user.officeLocation,
-    account_enabled: user.accountEnabled,
-    user_type: user.userType,
   };
 
   // Include extension attributes dynamically (keys starting with 'extension_')
@@ -56,10 +50,6 @@ export function normalizeGroup(group: EntraGroup): NormalizedItem {
     data: {
       name: group.displayName,
       description: group.description,
-      mail: group.mail,
-      group_types: group.groupTypes,
-      security_enabled: group.securityEnabled,
-      mail_enabled: group.mailEnabled,
       item_url_field: `${ENTRA_ADMIN_URL}/#view/Microsoft_AAD_IAM/GroupDetailsMenuBlade/~/Overview/groupId/${group.id}`,
     },
   };
@@ -87,7 +77,7 @@ export function normalizeDirectoryRole(role: EntraDirectoryRole): NormalizedItem
     modified_date: FALLBACK_DATE,
     data: {
       name: role.displayName,
-      description: role.description,
+      description: role.description || null,
       role_template_id: role.roleTemplateId,
       item_url_field: `${ENTRA_ADMIN_URL}/#view/Microsoft_AAD_IAM/RoleMenuBlade/~/Overview/objectId/${role.id}`,
     },
@@ -119,7 +109,7 @@ export function normalizeApplication(app: EntraApplication): NormalizedItem {
       app_id: app.appId,
       sign_in_audience: app.signInAudience,
       publisher_domain: app.publisherDomain,
-      identifier_uris: app.identifierUris,
+      identifier_uris: Array.isArray(app.identifierUris) ? app.identifierUris.join(', ') : '',
       item_url_field: `${ENTRA_ADMIN_URL}/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/RegisteredApps/appId/${app.appId}`,
     },
   };
@@ -155,6 +145,14 @@ export function normalizeDevice(device: EntraDevice): NormalizedItem {
       is_managed: device.isManaged,
       device_id: device.deviceId,
       registration_date_time: device.registrationDateTime,
+      // NEW: Additional device details
+      manufacturer: device.manufacturer || null,
+      model: device.model || null,
+      profile_type: device.profileType || null,
+      // NEW: Owner information
+      registered_owner_id: device.registeredOwnerId || null,
+      registered_owner_email: device.registeredOwnerEmail || null,
+      registered_owner_display_name: device.registeredOwnerDisplayName || null,
     },
   };
 }
@@ -169,10 +167,6 @@ export function normalizeOrgContact(contact: EntraOrgContact): NormalizedItem {
       display_name: contact.displayName,
       email: contact.mail,
       full_name: fullName,
-      job_title: contact.jobTitle,
-      department: contact.department,
-      company_name: contact.companyName,
-      item_url_field: `${ENTRA_ADMIN_URL}/#view/Microsoft_AAD_IAM/ContactDetailsMenuBlade/~/Overview/objectId/${contact.id}`,
     },
   };
 }
