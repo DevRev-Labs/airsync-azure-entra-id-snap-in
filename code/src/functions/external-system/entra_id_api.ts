@@ -153,12 +153,6 @@ export class EntraIDClient {
     return this.get<GraphPagedResponse<EntraDirectoryRole>>(url);
   }
 
-  async listRoleMembers(roleId: string, nextLink?: string): Promise<GraphPagedResponse<EntraDirectoryRoleMember>> {
-    // directoryRoles/{id}/members does NOT support $top — omit it to avoid HTTP 400
-    const url = nextLink || `/directoryRoles/${encodeURIComponent(roleId)}/members`;
-    return this.get<GraphPagedResponse<EntraDirectoryRoleMember>>(url);
-  }
-
   async listApplicationsPage(nextLink?: string): Promise<GraphPagedResponse<EntraApplication>> {
     const url = nextLink || `/applications?$top=${PAGE_SIZE}`;
     return this.get<GraphPagedResponse<EntraApplication>>(url);
@@ -218,22 +212,10 @@ export class EntraIDClient {
     return this.get<GraphPagedResponse<EntraUser>>(url);
   }
 
-  // ── NEW: Device Registered Users ───────────────────────────────────────────
-  async listDeviceRegisteredUsers(deviceId: string): Promise<GraphPagedResponse<EntraUser>> {
-    const url = `/devices/${encodeURIComponent(deviceId)}/registeredUsers`;
-    return this.get<GraphPagedResponse<EntraUser>>(url);
-  }
-
   // ── NEW: Device Full Details ───────────────────────────────────────────────
   async getDeviceDetails(deviceId: string): Promise<EntraDevice> {
     const url = `/devices/${encodeURIComponent(deviceId)}?$select=id,manufacturer,model,profileType`;
     return this.get<EntraDevice>(url);
-  }
-
-  // ── NEW: User Phone Details ────────────────────────────────────────────────
-  async getUserPhoneDetails(userId: string): Promise<EntraUser> {
-    const url = `/users/${encodeURIComponent(userId)}?$select=id,mobilePhone,businessPhones`;
-    return this.get<EntraUser>(url);
   }
 
   // ── NEW ENTITIES: App Roles & Assignments ──────────────────────────────────

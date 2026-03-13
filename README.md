@@ -103,6 +103,45 @@ make deploy
 
 ---
 
+## Incremental Sync
+
+This connector supports **time-scoped incremental syncs** using Microsoft Graph delta queries.
+
+### Configure Scheduled Sync
+
+After deploying the snap-in, configure automatic sync schedules in the DevRev UI:
+
+1. Go to: **Settings > Snap-ins > Azure Entra ID**
+2. Click **Schedule** or **Sync Settings**
+3. Set your desired sync frequency (e.g., hourly, every 6 hours, daily)
+4. Enable the schedule
+5. Save
+
+### How It Works
+
+- **Initial sync**: Fetches all users, groups, roles, and other entities
+- **Incremental sync**: Uses Microsoft Graph delta queries to fetch only changes since the last successful sync
+- **Delta tokens**: Automatically managed and stored (valid for 7 days)
+- **Token expiry**: If a delta token expires, the connector automatically falls back to a full re-sync for that entity
+
+### What Gets Synced Incrementally
+
+| Entity | Delta Support |
+|--------|---------------|
+| Users | ✅ Yes - `/users/delta` |
+| Groups | ✅ Yes - `/groups/delta` |
+| Directory Roles | ✅ Yes - `/directoryRoles/delta` |
+| Applications | ✅ Yes - `/applications/delta` |
+| Service Principals | ✅ Yes - `/servicePrincipals/delta` |
+| Devices | ✅ Yes - `/devices/delta` |
+| Org Contacts | ✅ Yes - `/contacts/delta` |
+| Group Members | Re-fetched for changed groups |
+| Role Members | Re-fetched for changed roles |
+| Audit Logs | Time-windowed (last 7 days) |
+| Sign-in Logs | Time-windowed (last 7 days) |
+
+---
+
 ## Project Structure
 
 ```

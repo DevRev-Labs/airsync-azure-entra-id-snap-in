@@ -1,5 +1,5 @@
-import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
-import { State } from '../../common/state';
+import { EventType, ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+import { getInitialState, State } from '../../common/state';
 import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
 import {
   normalizeApplication,
@@ -45,6 +45,23 @@ processTask({
       const accessToken = await acquireAccessToken(tenantId, clientId, clientSecret);
       const client = new EntraIDClient(accessToken);
       const isIncremental = adapter.event.payload.event_context.mode !== 'INITIAL';
+
+      // Reset state for incremental sync while preserving delta links and timestamps
+      if (isIncremental && adapter.event.payload.event_type === EventType.StartExtractingData) {
+        console.log('[data-extraction] Incremental sync: resetting entity completion flags while preserving delta links');
+        const prevDeltaLinks = adapter.state.deltaLinks;
+        const prevLastSuccessfulSync = adapter.state.lastSuccessfulSyncStarted;
+        const prevAuditLogSync = adapter.state.lastAuditLogSync;
+        const prevSignInLogSync = adapter.state.lastSignInLogSync;
+
+        adapter.state = {
+          ...getInitialState(),
+          deltaLinks: prevDeltaLinks,
+          lastSuccessfulSyncStarted: prevLastSuccessfulSync,
+          lastAuditLogSync: prevAuditLogSync,
+          lastSignInLogSync: prevSignInLogSync,
+        };
+      }
 
       // Record sync start timestamp (only on first invocation of this sync)
       if (!adapter.state.lastSyncStarted) {
