@@ -245,14 +245,41 @@ export function normalizeAuthenticationMethod(
 export function normalizeAuthenticationMethodsPolicy(
   policy: EntraAuthenticationMethodsPolicy
 ): NormalizedItem {
-  // Format objects/arrays as rich_text (DevRev expects { body: "string" } format)
-  const registrationEnforcement = policy.registrationEnforcement
-    ? { body: JSON.stringify(policy.registrationEnforcement, null, 2) }
-    : null;
+  // Extract registration enforcement details
+  const regEnforcement = policy.registrationEnforcement?.authenticationMethodsRegistrationCampaign;
+  const snoozeDays = regEnforcement?.snoozeDurationInDays || null;
+  const campaignState = regEnforcement?.state || null;
 
-  const authMethodConfigurations = policy.authenticationMethodConfigurations && policy.authenticationMethodConfigurations.length > 0
-    ? { body: JSON.stringify(policy.authenticationMethodConfigurations, null, 2) }
-    : null;
+  // Extract target information
+  const includeTarget = regEnforcement?.includeTargets?.[0];
+  const includeTargetId = includeTarget?.id || null;
+  const includeTargetType = includeTarget?.targetType || null;
+  const targetedAuthMethod = includeTarget?.targetedAuthenticationMethod || null;
+
+  // Extract enabled authentication methods
+  const enabledMethods = policy.authenticationMethodConfigurations
+    ?.filter(config => config.state === 'enabled')
+    .map(config => {
+      const type = config['@odata.type'] || '';
+      const match = type.match(/\.(\w+)AuthenticationMethodConfiguration$/);
+      return match ? match[1] : config.id;
+    })
+    .filter(Boolean)
+    .join(', ') || null;
+
+  // Extract disabled authentication methods
+  const disabledMethods = policy.authenticationMethodConfigurations
+    ?.filter(config => config.state === 'disabled')
+    .map(config => {
+      const type = config['@odata.type'] || '';
+      const match = type.match(/\.(\w+)AuthenticationMethodConfiguration$/);
+      return match ? match[1] : config.id;
+    })
+    .filter(Boolean)
+    .join(', ') || null;
+
+  // Count total configurations
+  const totalConfigurations = policy.authenticationMethodConfigurations?.length || 0;
 
   return {
     id: policy.id,
@@ -260,8 +287,16 @@ export function normalizeAuthenticationMethodsPolicy(
     modified_date: FALLBACK_DATE,
     data: {
       display_name: policy.displayName,
-      registration_enforcement: registrationEnforcement,
-      authentication_method_configurations: authMethodConfigurations,
+      // Registration enforcement fields
+      registration_campaign_state: campaignState,
+      registration_snooze_days: snoozeDays,
+      registration_include_target_id: includeTargetId,
+      registration_include_target_type: includeTargetType,
+      registration_targeted_auth_method: targetedAuthMethod,
+      // Authentication method summaries
+      enabled_auth_methods: enabledMethods,
+      disabled_auth_methods: disabledMethods,
+      total_auth_method_configurations: totalConfigurations,
     },
   };
 }
@@ -271,6 +306,12 @@ export function normalizeLicenseAssignment(
   license: EntraLicenseDetails,
   userId: string
 ): NormalizedItem {
+  // Extract service plan counts by status
+  const totalPlans = license.servicePlans?.length || 0;
+  const successPlans = license.servicePlans?.filter(plan => plan.provisioningStatus === 'Success').length || 0;
+  const disabledPlans = license.servicePlans?.filter(plan => plan.provisioningStatus === 'Disabled').length || 0;
+  const pendingPlans = license.servicePlans?.filter(plan => plan.provisioningStatus === 'PendingInput' || plan.provisioningStatus === 'PendingActivation' || plan.provisioningStatus === 'PendingProvisioning').length || 0;
+
   // Extract active service plan names
   const activeServicePlans = license.servicePlans
     ?.filter(plan => plan.provisioningStatus === 'Success')
@@ -278,10 +319,12 @@ export function normalizeLicenseAssignment(
     .filter(Boolean)
     .join(', ') || null;
 
-  // Format array as rich_text (DevRev expects { body: "string" } format)
-  const servicePlans = license.servicePlans && license.servicePlans.length > 0
-    ? { body: JSON.stringify(license.servicePlans, null, 2) }
-    : null;
+  // Extract disabled service plan names
+  const disabledServicePlans = license.servicePlans
+    ?.filter(plan => plan.provisioningStatus === 'Disabled')
+    .map(plan => plan.servicePlanName)
+    .filter(Boolean)
+    .join(', ') || null;
 
   return {
     id: `${userId}-${license.skuId}`,
@@ -291,21 +334,29 @@ export function normalizeLicenseAssignment(
       user_id: userId,
       sku_id: license.skuId,
       sku_part_number: license.skuPartNumber,
+      // Service plan summaries
       active_service_plans: activeServicePlans,
-      service_plans: servicePlans,
+      disabled_service_plans: disabledServicePlans,
+      total_service_plans: totalPlans,
+      success_service_plans_count: successPlans,
+      disabled_service_plans_count: disabledPlans,
+      pending_service_plans_count: pendingPlans,
     },
   };
 }
 
 // NEW: Normalize PIM Eligible Role
 export function normalizePIMEligibleRole(schedule: EntraPIMRoleEligibilitySchedule): NormalizedItem {
-  // Extract schedule start date
-  const scheduleStartDateTime = schedule.scheduleInfo?.startDateTime || null;
+  const scheduleInfo = schedule.scheduleInfo as any;
+  const expiration = scheduleInfo?.expiration;
 
-  // Format object as rich_text (DevRev expects { body: "string" } format)
-  const scheduleInfo = schedule.scheduleInfo
-    ? { body: JSON.stringify(schedule.scheduleInfo, null, 2) }
-    : null;
+  // Extract schedule dates
+  const scheduleStartDateTime = scheduleInfo?.startDateTime || null;
+  const scheduleEndDateTime = expiration?.endDateTime || null;
+
+  // Extract expiration details
+  const expirationType = expiration?.type || null;
+  const expirationDuration = expiration?.duration || null;
 
   return {
     id: schedule.id,
@@ -315,27 +366,53 @@ export function normalizePIMEligibleRole(schedule: EntraPIMRoleEligibilitySchedu
       principal_id: schedule.principalId,
       role_definition_id: schedule.roleDefinitionId,
       directory_scope_id: schedule.directoryScopeId,
-      schedule_start_date_time: scheduleStartDateTime,
-      schedule_info: scheduleInfo,
       status: schedule.status,
+      // Schedule information
+      schedule_start_date_time: scheduleStartDateTime,
+      schedule_end_date_time: scheduleEndDateTime,
+      expiration_type: expirationType,
+      expiration_duration: expirationDuration,
     },
   };
 }
 
 // NEW: Normalize Conditional Access Policy
 export function normalizeConditionalAccessPolicy(policy: EntraConditionalAccessPolicy): NormalizedItem {
-  // Format objects as rich_text (DevRev expects { body: "string" } format)
-  const conditions = policy.conditions
-    ? { body: JSON.stringify(policy.conditions, null, 2) }
-    : null;
+  const conditions = policy.conditions as any;
+  const grantControls = policy.grantControls as any;
+  const sessionControls = policy.sessionControls as any;
 
-  const grantControls = policy.grantControls
-    ? { body: JSON.stringify(policy.grantControls, null, 2) }
-    : null;
+  // Extract user conditions
+  const includeUsers = conditions?.users?.includeUsers?.join(', ') || null;
+  const excludeUsers = conditions?.users?.excludeUsers?.join(', ') || null;
+  const includeGroups = conditions?.users?.includeGroups?.join(', ') || null;
+  const excludeGroups = conditions?.users?.excludeGroups?.join(', ') || null;
+  const includeRoles = conditions?.users?.includeRoles?.join(', ') || null;
+  const excludeRoles = conditions?.users?.excludeRoles?.join(', ') || null;
 
-  const sessionControls = policy.sessionControls
-    ? { body: JSON.stringify(policy.sessionControls, null, 2) }
-    : null;
+  // Extract application conditions
+  const includeApplications = conditions?.applications?.includeApplications?.join(', ') || null;
+  const excludeApplications = conditions?.applications?.excludeApplications?.join(', ') || null;
+
+  // Extract platform conditions
+  const includePlatforms = conditions?.platforms?.includePlatforms?.join(', ') || null;
+  const excludePlatforms = conditions?.platforms?.excludePlatforms?.join(', ') || null;
+
+  // Extract location conditions
+  const includeLocations = conditions?.locations?.includeLocations?.join(', ') || null;
+  const excludeLocations = conditions?.locations?.excludeLocations?.join(', ') || null;
+
+  // Extract client app types
+  const clientAppTypes = conditions?.clientAppTypes?.join(', ') || null;
+
+  // Extract grant controls
+  const builtInControls = grantControls?.builtInControls?.join(', ') || null;
+  const grantOperator = grantControls?.operator || null;
+
+  // Extract session controls
+  const signInFrequencyValue = sessionControls?.signInFrequency?.value || null;
+  const signInFrequencyType = sessionControls?.signInFrequency?.type || null;
+  const persistentBrowserMode = sessionControls?.persistentBrowser?.mode || null;
 
   return {
     id: policy.id,
@@ -344,9 +421,31 @@ export function normalizeConditionalAccessPolicy(policy: EntraConditionalAccessP
     data: {
       display_name: policy.displayName,
       state: policy.state,
-      conditions,
-      grant_controls: grantControls,
-      session_controls: sessionControls,
+      // User conditions
+      include_users: includeUsers,
+      exclude_users: excludeUsers,
+      include_groups: includeGroups,
+      exclude_groups: excludeGroups,
+      include_roles: includeRoles,
+      exclude_roles: excludeRoles,
+      // Application conditions
+      include_applications: includeApplications,
+      exclude_applications: excludeApplications,
+      // Platform conditions
+      include_platforms: includePlatforms,
+      exclude_platforms: excludePlatforms,
+      // Location conditions
+      include_locations: includeLocations,
+      exclude_locations: excludeLocations,
+      // Client app types
+      client_app_types: clientAppTypes,
+      // Grant controls
+      grant_built_in_controls: builtInControls,
+      grant_operator: grantOperator,
+      // Session controls
+      sign_in_frequency_value: signInFrequencyValue,
+      sign_in_frequency_type: signInFrequencyType,
+      persistent_browser_mode: persistentBrowserMode,
       item_url_field: `${ENTRA_ADMIN_URL}/#view/Microsoft_AAD_ConditionalAccess/PolicyBlade/policyId/${policy.id}`,
     },
   };
@@ -354,14 +453,32 @@ export function normalizeConditionalAccessPolicy(policy: EntraConditionalAccessP
 
 // NEW: Normalize Lifecycle Workflow
 export function normalizeLifecycleWorkflow(workflow: EntraLifecycleWorkflow): NormalizedItem {
-  // Format objects/arrays as rich_text (DevRev expects { body: "string" } format)
-  const executionConditions = workflow.executionConditions
-    ? { body: JSON.stringify(workflow.executionConditions, null, 2) }
-    : null;
+  const executionConditions = workflow.executionConditions as any;
 
-  const tasks = workflow.tasks && workflow.tasks.length > 0
-    ? { body: JSON.stringify(workflow.tasks, null, 2) }
-    : null;
+  // Extract trigger conditions
+  const triggerScope = executionConditions?.['@odata.type']?.split('.').pop() || null;
+  const triggerTimeBasedAttribute = executionConditions?.timeBasedAttribute || null;
+  const triggerOffsetInDays = executionConditions?.offsetInDays || null;
+
+  // Extract task information
+  const taskCount = workflow.tasks?.length || 0;
+  const taskTypes = workflow.tasks
+    ?.map((task: any) => {
+      const type = task.taskDefinitionId || task['@odata.type'];
+      if (!type) return null;
+      // Extract last part of the type
+      const match = type.match(/\.(\w+)$/);
+      return match ? match[1] : type;
+    })
+    .filter(Boolean)
+    .join(', ') || null;
+
+  // Get first few task display names
+  const taskNames = workflow.tasks
+    ?.slice(0, 3)
+    .map((task: any) => task.displayName)
+    .filter(Boolean)
+    .join(', ') || null;
 
   return {
     id: workflow.id,
@@ -372,8 +489,14 @@ export function normalizeLifecycleWorkflow(workflow: EntraLifecycleWorkflow): No
       description: workflow.description,
       category: workflow.category,
       is_enabled: workflow.isEnabled,
-      execution_conditions: executionConditions,
-      tasks,
+      // Trigger/execution conditions
+      trigger_scope: triggerScope,
+      trigger_time_based_attribute: triggerTimeBasedAttribute,
+      trigger_offset_in_days: triggerOffsetInDays,
+      // Task information
+      task_count: taskCount,
+      task_types: taskTypes,
+      task_names: taskNames,
     },
   };
 }
@@ -405,15 +528,6 @@ export function normalizeDirectoryAudit(audit: EntraDirectoryAudit): NormalizedI
   const invitedUserEmail = additionalDetailsMap['invitedUserEmailAddress'] || null;
   const invitationId = additionalDetailsMap['InvitationId'] || null;
 
-  // Format full arrays as rich_text (DevRev expects { body: "string" } format)
-  const targetResources = audit.targetResources && audit.targetResources.length > 0
-    ? { body: JSON.stringify(audit.targetResources, null, 2) }
-    : null;
-
-  const additionalDetails = audit.additionalDetails && audit.additionalDetails.length > 0
-    ? { body: JSON.stringify(audit.additionalDetails, null, 2) }
-    : null;
-
   return {
     id: audit.id,
     created_date: audit.activityDateTime,
@@ -436,9 +550,6 @@ export function normalizeDirectoryAudit(audit: EntraDirectoryAudit): NormalizedI
       user_agent: userAgent,
       invited_user_email: invitedUserEmail,
       invitation_id: invitationId,
-      // Full arrays (fallback/complete data)
-      target_resources: targetResources,
-      additional_details: additionalDetails,
     },
   };
 }
@@ -458,15 +569,6 @@ export function normalizeSignIn(signIn: EntraSignIn): NormalizedItem {
   const deviceIsCompliant = signIn.deviceDetail?.isCompliant || null;
   const deviceIsManaged = signIn.deviceDetail?.isManaged || null;
   const deviceTrustType = signIn.deviceDetail?.trustType || null;
-
-  // Format full objects as rich_text (DevRev expects { body: "string" } format)
-  const location = signIn.location
-    ? { body: JSON.stringify(signIn.location, null, 2) }
-    : null;
-
-  const deviceDetail = signIn.deviceDetail
-    ? { body: JSON.stringify(signIn.deviceDetail, null, 2) }
-    : null;
 
   return {
     id: signIn.id,
@@ -496,9 +598,7 @@ export function normalizeSignIn(signIn: EntraSignIn): NormalizedItem {
       device_is_compliant: deviceIsCompliant,
       device_is_managed: deviceIsManaged,
       device_trust_type: deviceTrustType,
-      // Full objects (fallback/complete data)
-      location,
-      device_detail: deviceDetail,
+      // Other fields
       conditional_access_status: signIn.conditionalAccessStatus,
       risk_detail: signIn.riskDetail,
       risk_level_aggregated: signIn.riskLevelAggregated,

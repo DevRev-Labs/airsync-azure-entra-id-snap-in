@@ -401,13 +401,51 @@
           "name": "Policy Name",
           "type": "text"
         },
-        "registration_enforcement": {
-          "name": "Registration Enforcement",
-          "type": "rich_text"
+        "registration_campaign_state": {
+          "name": "Registration Campaign State",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "enabled", "name": "Enabled" },
+              { "key": "disabled", "name": "Disabled" },
+              { "key": "default", "name": "Default" }
+            ]
+          }
         },
-        "authentication_method_configurations": {
-          "name": "Method Configurations",
-          "type": "rich_text"
+        "registration_snooze_days": {
+          "name": "Registration Snooze Days",
+          "type": "int"
+        },
+        "registration_include_target_id": {
+          "name": "Registration Target ID",
+          "type": "text"
+        },
+        "registration_include_target_type": {
+          "name": "Registration Target Type",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "group", "name": "Group" },
+              { "key": "user", "name": "User" }
+            ]
+          }
+        },
+        "registration_targeted_auth_method": {
+          "name": "Targeted Auth Method",
+          "type": "text"
+        },
+        "enabled_auth_methods": {
+          "name": "Enabled Authentication Methods",
+          "type": "text",
+          "is_indexed": true
+        },
+        "disabled_auth_methods": {
+          "name": "Disabled Authentication Methods",
+          "type": "text"
+        },
+        "total_auth_method_configurations": {
+          "name": "Total Method Configurations",
+          "type": "int"
         }
       }
     },
@@ -438,9 +476,25 @@
           "type": "text",
           "is_indexed": true
         },
-        "service_plans": {
-          "name": "Service Plans (Full)",
-          "type": "rich_text"
+        "disabled_service_plans": {
+          "name": "Disabled Service Plans",
+          "type": "text"
+        },
+        "total_service_plans": {
+          "name": "Total Service Plans",
+          "type": "int"
+        },
+        "success_service_plans_count": {
+          "name": "Success Plans Count",
+          "type": "int"
+        },
+        "disabled_service_plans_count": {
+          "name": "Disabled Plans Count",
+          "type": "int"
+        },
+        "pending_service_plans_count": {
+          "name": "Pending Plans Count",
+          "type": "int"
         }
       }
     },
@@ -461,15 +515,6 @@
           "name": "Scope",
           "type": "text"
         },
-        "schedule_start_date_time": {
-          "name": "Start Date",
-          "type": "timestamp",
-          "is_indexed": true
-        },
-        "schedule_info": {
-          "name": "Schedule Info (Full)",
-          "type": "rich_text"
-        },
         "status": {
           "name": "Status",
           "type": "enum",
@@ -481,6 +526,31 @@
               { "key": "Revoked", "name": "Revoked" }
             ]
           }
+        },
+        "schedule_start_date_time": {
+          "name": "Start Date",
+          "type": "timestamp",
+          "is_indexed": true
+        },
+        "schedule_end_date_time": {
+          "name": "End Date",
+          "type": "timestamp",
+          "is_indexed": true
+        },
+        "expiration_type": {
+          "name": "Expiration Type",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "noExpiration", "name": "No Expiration" },
+              { "key": "afterDateTime", "name": "After Date/Time" },
+              { "key": "afterDuration", "name": "After Duration" }
+            ]
+          }
+        },
+        "expiration_duration": {
+          "name": "Expiration Duration",
+          "type": "text"
         }
       }
     },
@@ -503,17 +573,100 @@
             ]
           }
         },
-        "conditions": {
-          "name": "Conditions",
-          "type": "rich_text"
+        "include_users": {
+          "name": "Include Users",
+          "type": "text",
+          "is_indexed": true
         },
-        "grant_controls": {
+        "exclude_users": {
+          "name": "Exclude Users",
+          "type": "text"
+        },
+        "include_groups": {
+          "name": "Include Groups",
+          "type": "text",
+          "is_indexed": true
+        },
+        "exclude_groups": {
+          "name": "Exclude Groups",
+          "type": "text"
+        },
+        "include_roles": {
+          "name": "Include Roles",
+          "type": "text",
+          "is_indexed": true
+        },
+        "exclude_roles": {
+          "name": "Exclude Roles",
+          "type": "text"
+        },
+        "include_applications": {
+          "name": "Include Applications",
+          "type": "text",
+          "is_indexed": true
+        },
+        "exclude_applications": {
+          "name": "Exclude Applications",
+          "type": "text"
+        },
+        "include_platforms": {
+          "name": "Include Platforms",
+          "type": "text"
+        },
+        "exclude_platforms": {
+          "name": "Exclude Platforms",
+          "type": "text"
+        },
+        "include_locations": {
+          "name": "Include Locations",
+          "type": "text"
+        },
+        "exclude_locations": {
+          "name": "Exclude Locations",
+          "type": "text"
+        },
+        "client_app_types": {
+          "name": "Client App Types",
+          "type": "text"
+        },
+        "grant_built_in_controls": {
           "name": "Grant Controls",
-          "type": "rich_text"
+          "type": "text",
+          "is_indexed": true
         },
-        "session_controls": {
-          "name": "Session Controls",
-          "type": "rich_text"
+        "grant_operator": {
+          "name": "Grant Operator",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "AND", "name": "AND (All Required)" },
+              { "key": "OR", "name": "OR (Any Required)" }
+            ]
+          }
+        },
+        "sign_in_frequency_value": {
+          "name": "Sign-in Frequency Value",
+          "type": "int"
+        },
+        "sign_in_frequency_type": {
+          "name": "Sign-in Frequency Type",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "days", "name": "Days" },
+              { "key": "hours", "name": "Hours" }
+            ]
+          }
+        },
+        "persistent_browser_mode": {
+          "name": "Persistent Browser",
+          "type": "enum",
+          "enum": {
+            "values": [
+              { "key": "always", "name": "Always" },
+              { "key": "never", "name": "Never" }
+            ]
+          }
         },
         "item_url_field": {
           "name": "Entra Portal URL",
@@ -548,13 +701,30 @@
           "name": "Enabled",
           "type": "bool"
         },
-        "execution_conditions": {
-          "name": "Execution Conditions",
-          "type": "rich_text"
+        "trigger_scope": {
+          "name": "Trigger Scope",
+          "type": "text"
         },
-        "tasks": {
-          "name": "Tasks",
-          "type": "rich_text"
+        "trigger_time_based_attribute": {
+          "name": "Trigger Attribute",
+          "type": "text"
+        },
+        "trigger_offset_in_days": {
+          "name": "Trigger Offset (Days)",
+          "type": "int"
+        },
+        "task_count": {
+          "name": "Number of Tasks",
+          "type": "int"
+        },
+        "task_types": {
+          "name": "Task Types",
+          "type": "text",
+          "is_indexed": true
+        },
+        "task_names": {
+          "name": "Task Names",
+          "type": "text"
         }
       }
     },
@@ -651,14 +821,6 @@
         "invitation_id": {
           "name": "Invitation ID",
           "type": "text"
-        },
-        "target_resources": {
-          "name": "Target Resources (Full)",
-          "type": "rich_text"
-        },
-        "additional_details": {
-          "name": "Additional Details (Full)",
-          "type": "rich_text"
         }
       }
     },
@@ -757,14 +919,6 @@
         "device_trust_type": {
           "name": "Device Trust Type",
           "type": "text"
-        },
-        "location": {
-          "name": "Location (Full)",
-          "type": "rich_text"
-        },
-        "device_detail": {
-          "name": "Device Details (Full)",
-          "type": "rich_text"
         },
         "conditional_access_status": {
           "name": "Conditional Access Status",
