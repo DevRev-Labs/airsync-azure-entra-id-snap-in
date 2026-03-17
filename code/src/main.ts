@@ -7,7 +7,8 @@ import { functionFactory, FunctionFactoryType } from './function-factory';
 
 dotenv.config();
 
-(async () => {
+// Top-level async IIFE with error handling
+void (async () => {
   const argv = await yargs(hideBin(process.argv)).options({
     fixturePath: {
       type: 'string',
@@ -46,4 +47,7 @@ dotenv.config();
   console.log(`Running function '${functionName}' with fixture '${argv.fixturePath}'`);
   await fn([event]);
   console.log('Done.');
-})();
+})().catch((error: unknown) => {
+  console.error('Unhandled error:', error);
+  process.exit(1);
+});

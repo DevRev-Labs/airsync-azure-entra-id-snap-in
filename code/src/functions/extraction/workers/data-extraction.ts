@@ -1,6 +1,129 @@
+/**
+ * Data Extraction Worker for Azure Entra ID Connector
+ *
+ * This is the main data extraction worker that orchestrates the retrieval of all
+ * identity and directory data from Azure Entra ID (Microsoft Entra ID) via
+ * Microsoft Graph API.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ARCHITECTURE OVERVIEW
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This worker is invoked by the DevRev Airdrop framework and runs as a
+ * stateful, resumable task that can handle:
+ * - Long-running extractions (hours for large tenants)
+ * - Timeouts and resumption from last checkpoint
+ * - Rate limiting and throttling
+ * - Incremental syncs using Microsoft Graph delta queries
+ * - Graceful error handling for missing permissions
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * EXTRACTION PROCESS
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * 1. **Authentication**
+ *    - Acquire OAuth 2.0 access token using client credentials
+ *    - Create authenticated Microsoft Graph API client
+ *
+ * 2. **Sync Mode Detection**
+ *    - INITIAL: Full sync of all entities
+ *    - INCREMENTAL: Delta query sync (only changed entities)
+ *
+ * 3. **Entity Extraction** (Sequential, in this order)
+ *    a. Users (with extension attributes)
+ *    b. Groups
+ *    c. Group Members (for each group)
+ *    d. Directory Roles
+ *    e. Role Members (for each role)
+ *    f. Applications
+ *    g. Service Principals
+ *    h. Devices (with owner information)
+ *    i. Organizational Contacts
+ *    j. App Roles (for each service principal)
+ *    k. App Role Assignments (for each service principal)
+ *    l. Authentication Methods (for each user)
+ *    m. Authentication Methods Policy
+ *    n. License Assignments (for each user)
+ *    o. PIM Eligible Roles
+ *    p. Conditional Access Policies
+ *    q. Lifecycle Workflows
+ *    r. Directory Audit Logs (time-windowed)
+ *    s. Sign-In Logs (time-windowed)
+ *
+ * 4. **State Management**
+ *    - Track extraction progress for each entity
+ *    - Store pagination tokens (nextLink) for resumption
+ *    - Store delta tokens (deltaLink) for incremental syncs
+ *    - Handle timeout and resume from checkpoint
+ *
+ * 5. **Error Handling**
+ *    - Rate Limiting (429): Request delay and retry
+ *    - Authentication (401): Request delay and retry
+ *    - Permission Denied (403): Skip entity and continue
+ *    - Delta Expired (410): Reset to full sync for that entity
+ *    - Other errors: Fail extraction with detailed error
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * INCREMENTAL SYNC STRATEGY
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * Microsoft Graph API supports delta queries for most entity types. Delta queries
+ * return only entities that have changed since the last sync, significantly
+ * reducing API calls and processing time.
+ *
+ * Delta Token Lifecycle:
+ * 1. Initial sync returns @odata.deltaLink
+ * 2. Store deltaLink in state for next sync
+ * 3. Incremental sync uses deltaLink to get only changes
+ * 4. If deltaLink expires (410 error), fall back to full sync
+ * 5. Delta tokens are valid for 7 days
+ *
+ * Delta Query Support:
+ * - ✅ Users, Groups, Directory Roles
+ * - ✅ Applications, Service Principals
+ * - ✅ Devices, Organizational Contacts
+ * - ❌ Group Members, Role Members (re-fetch for changed parent)
+ * - ❌ Audit Logs, Sign-In Logs (use time-windowed queries)
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * PERFORMANCE & OPTIMIZATION
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * - Pagination: 999 items per page (maximum allowed by Graph API)
+ * - Timeout Handling: Worker can resume from last checkpoint
+ * - Graceful Degradation: Skip entities with missing permissions
+ * - Memory Efficiency: Stream entities in batches, don't hold all in memory
+ * - Rate Limiting: Respect Retry-After headers from API
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * STATE PRESERVATION
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * The worker maintains state across invocations:
+ * - Entity completion flags
+ * - Pagination nextLink tokens
+ * - Delta query deltaLink tokens
+ * - Extracted item counts
+ * - Collected entity IDs
+ * - Sync timestamps
+ *
+ * This enables:
+ * - Resumption after timeouts
+ * - Incremental syncs
+ * - Progress tracking
+ * - Accurate metrics
+ */
+
+// Import DevRev Airdrop framework types and functions
 import { EventType, ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+
+// Import state management types and initializer
 import { getInitialState, State } from '../../common/state';
+
+// Import Microsoft Graph API client and authentication
 import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
+
+// Import all normalization functions for transforming raw API data
 import {
   normalizeApplication,
   normalizeDevice,
@@ -22,7 +145,11 @@ import {
   normalizeDirectoryAudit,
   normalizeSignIn,
 } from '../../external-system/data-normalization';
+
+// Import configuration constants
 import { ADAPTER_TIMEOUT_DELAY_MS, ENTITY_NAMES, DEFAULT_RATE_LIMIT_DELAY_SECONDS } from '../../common/constants';
+
+// Import utility functions for error handling and delays
 import {
   formatError,
   isAuthError,
@@ -34,130 +161,362 @@ import {
   wait,
 } from '../../common/utils';
 
+// Import security validation functions
+import { validateConnectionData, sanitizeLogMessage } from '../../common/security';
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * MAIN EXTRACTION TASK
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * This processTask() call registers the worker with the DevRev Airdrop framework.
+ * It defines two callbacks:
+ * 1. onTimeout: Called when worker is about to timeout (saves progress)
+ * 2. task: Main extraction logic that runs on each invocation
+ */
 processTask({
+  /**
+   * Timeout Handler
+   *
+   * Called by the framework when the worker is approaching its execution time limit.
+   * Emits a progress event to signal that work is being saved and will resume later.
+   *
+   * The worker will be re-invoked later and will resume from its last saved state.
+   */
   onTimeout: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
+    // Emit progress event to indicate state is being saved
     await adapter.emit(ExtractorEventType.DataExtractionProgress);
   },
+
+  /**
+   * Main Extraction Task
+   *
+   * Orchestrates the extraction of all Azure Entra ID entities.
+   * This function is called on each worker invocation and can be called multiple
+   * times if the extraction takes longer than the worker timeout.
+   *
+   * @param adapter - DevRev Airdrop adapter providing state management and API access
+   */
   task: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
     try {
-      const { org_id: tenantId, key } = adapter.event.payload.connection_data;
-      const [clientId, clientSecret] = key.split('|');
+      // ─────────────────────────────────────────────────────────────────────────
+      // STEP 1: EXTRACT AND VALIDATE CONNECTION CREDENTIALS
+      // ─────────────────────────────────────────────────────────────────────────
+      // Connection data is provided by DevRev and contains Azure AD credentials
+      // Security validation prevents injection attacks and malformed credentials
+
+      // Validate and extract credentials using centralized security validation
+      // This function performs comprehensive input validation on all credential fields
+      const { tenantId, clientId, clientSecret } = validateConnectionData(adapter.event.payload.connection_data);
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // STEP 2: AUTHENTICATE WITH MICROSOFT ENTRA ID
+      // ─────────────────────────────────────────────────────────────────────────
+      // Acquire OAuth 2.0 access token using client credentials flow
+      // This token will be used for all subsequent Microsoft Graph API calls
+
       const accessToken = await acquireAccessToken(tenantId, clientId, clientSecret);
+
+      // Create authenticated Microsoft Graph API client
       const client = new EntraIDClient(accessToken);
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // STEP 3: DETERMINE SYNC MODE (INITIAL vs INCREMENTAL)
+      // ─────────────────────────────────────────────────────────────────────────
+      // Check if this is an incremental sync or initial full sync
+      // Incremental syncs use delta queries to fetch only changed entities
+
       const isIncremental = adapter.event.payload.event_context.mode !== 'INITIAL';
 
-      // Reset state for incremental sync while preserving delta links and timestamps
+      // ─────────────────────────────────────────────────────────────────────────
+      // STEP 4: RESET STATE FOR INCREMENTAL SYNC (IF APPLICABLE)
+      // ─────────────────────────────────────────────────────────────────────────
+      // For incremental syncs, we need to reset entity completion flags while
+      // preserving delta links and timestamps from the previous successful sync
+
       if (isIncremental && adapter.event.payload.event_type === EventType.StartExtractingData) {
         console.log('[data-extraction] Incremental sync: resetting entity completion flags while preserving delta links');
+
+        // Save critical data from previous sync
+        // Delta links are tokens that allow us to fetch only changes
         const prevDeltaLinks = adapter.state.deltaLinks;
+
+        // Last successful sync timestamp helps with audit log time-windowing
         const prevLastSuccessfulSync = adapter.state.lastSuccessfulSyncStarted;
+
+        // Last audit/sign-in log sync timestamps for time-windowed queries
         const prevAuditLogSync = adapter.state.lastAuditLogSync;
         const prevSignInLogSync = adapter.state.lastSignInLogSync;
 
+        // Reset state to initial but preserve delta links and timestamps
+        // This allows us to:
+        // - Re-extract all entities using delta queries (only changed items)
+        // - Continue audit log queries from last sync time
+        // - Track the new sync's progress independently
         adapter.state = {
-          ...getInitialState(),
-          deltaLinks: prevDeltaLinks,
-          lastSuccessfulSyncStarted: prevLastSuccessfulSync,
-          lastAuditLogSync: prevAuditLogSync,
-          lastSignInLogSync: prevSignInLogSync,
+          ...getInitialState(), // Fresh state with all entities marked incomplete
+          deltaLinks: prevDeltaLinks, // Preserve delta query tokens
+          lastSuccessfulSyncStarted: prevLastSuccessfulSync, // Preserve last sync timestamp
+          lastAuditLogSync: prevAuditLogSync, // Preserve last audit log sync time
+          lastSignInLogSync: prevSignInLogSync, // Preserve last sign-in log sync time
         };
       }
 
-      // Record sync start timestamp (only on first invocation of this sync)
+      // ─────────────────────────────────────────────────────────────────────────
+      // STEP 5: RECORD SYNC START TIMESTAMP
+      // ─────────────────────────────────────────────────────────────────────────
+      // Record when this sync started (only on the very first invocation)
+      // This timestamp is used for:
+      // - Audit log time-windowing (fetch logs since last sync)
+      // - Tracking sync duration
+      // - Debugging and monitoring
+
       if (!adapter.state.lastSyncStarted) {
         adapter.state.lastSyncStarted = new Date().toISOString();
       }
 
+      // ─────────────────────────────────────────────────────────────────────────
+      // STEP 6: INITIALIZE DATA REPOSITORIES
+      // ─────────────────────────────────────────────────────────────────────────
+      // Register all entity types that will be extracted
+      // This tells the DevRev framework what types of data we'll be sending
+
       adapter.initializeRepos([
-        { itemType: ENTITY_NAMES.USERS },
-        { itemType: ENTITY_NAMES.GROUPS },
-        { itemType: ENTITY_NAMES.GROUP_MEMBERS },
-        { itemType: ENTITY_NAMES.DIRECTORY_ROLES },
-        { itemType: ENTITY_NAMES.ROLE_MEMBERS },
-        { itemType: ENTITY_NAMES.APPLICATIONS },
-        { itemType: ENTITY_NAMES.SERVICE_PRINCIPALS },
-        { itemType: ENTITY_NAMES.DEVICES },
-        { itemType: ENTITY_NAMES.ORG_CONTACTS },
-        // NEW ENTITIES
-        { itemType: ENTITY_NAMES.APP_ROLES },
-        { itemType: ENTITY_NAMES.APP_ROLE_ASSIGNMENTS },
-        { itemType: ENTITY_NAMES.AUTHENTICATION_METHODS },
-        { itemType: ENTITY_NAMES.AUTHENTICATION_METHODS_POLICY },
-        { itemType: ENTITY_NAMES.LICENSE_ASSIGNMENTS },
-        { itemType: ENTITY_NAMES.PIM_ELIGIBLE_ROLES },
-        { itemType: ENTITY_NAMES.CONDITIONAL_ACCESS_POLICIES },
-        { itemType: ENTITY_NAMES.LIFECYCLE_WORKFLOWS },
-        { itemType: ENTITY_NAMES.DIRECTORY_AUDIT_LOGS },
-        { itemType: ENTITY_NAMES.SIGN_IN_LOGS },
+        // Core identity entities
+        { itemType: ENTITY_NAMES.USERS }, // Azure AD users
+        { itemType: ENTITY_NAMES.GROUPS }, // Azure AD groups
+        { itemType: ENTITY_NAMES.GROUP_MEMBERS }, // Group membership relationships
+        { itemType: ENTITY_NAMES.DIRECTORY_ROLES }, // Admin roles
+        { itemType: ENTITY_NAMES.ROLE_MEMBERS }, // Role assignment relationships
+        { itemType: ENTITY_NAMES.APPLICATIONS }, // Application registrations
+        { itemType: ENTITY_NAMES.SERVICE_PRINCIPALS }, // Service principals (enterprise apps)
+        { itemType: ENTITY_NAMES.DEVICES }, // Registered devices
+        { itemType: ENTITY_NAMES.ORG_CONTACTS }, // Organizational contacts
+        // Advanced identity entities
+        { itemType: ENTITY_NAMES.APP_ROLES }, // Application role definitions
+        { itemType: ENTITY_NAMES.APP_ROLE_ASSIGNMENTS }, // Application role assignments
+        { itemType: ENTITY_NAMES.AUTHENTICATION_METHODS }, // User MFA methods
+        { itemType: ENTITY_NAMES.AUTHENTICATION_METHODS_POLICY }, // Tenant MFA policy
+        { itemType: ENTITY_NAMES.LICENSE_ASSIGNMENTS }, // User license assignments
+        { itemType: ENTITY_NAMES.PIM_ELIGIBLE_ROLES }, // PIM role eligibilities
+        { itemType: ENTITY_NAMES.CONDITIONAL_ACCESS_POLICIES }, // Conditional Access policies
+        { itemType: ENTITY_NAMES.LIFECYCLE_WORKFLOWS }, // Identity lifecycle workflows
+        { itemType: ENTITY_NAMES.DIRECTORY_AUDIT_LOGS }, // Directory audit logs
+        { itemType: ENTITY_NAMES.SIGN_IN_LOGS }, // User sign-in logs
       ]);
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // STEP 7: TRACK SKIPPED ENTITIES
+      // ─────────────────────────────────────────────────────────────────────────
+      // Array to collect names of entities that were skipped due to missing permissions
+      // This will be logged at the end for transparency
 
       const skippedEntities: string[] = [];
 
-      // ── 1. Users ──────────────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #1: USERS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all users from Azure AD, including:
+      // - Basic profile information (name, email, job title)
+      // - Dynamic extension attributes (custom fields)
+      // - Account status and user type
+      //
+      // Supports:
+      // - ✅ Incremental sync via delta queries
+      // - ✅ Pagination (up to 999 users per page)
+      // - ✅ Resume from checkpoint on timeout
+      //
+      // Required Permission: User.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // Only extract if not already completed (enables resumption after timeout)
       if (!adapter.state.users.completed) {
         try {
+          // ─────────────────────────────────────────────────────────────────────
+          // Initialize extraction variables
+          // ─────────────────────────────────────────────────────────────────────
+
+          // Restore pagination token from previous invocation (if any)
           let nextLink = adapter.state.users.nextLink;
+
+          // Variable to hold current page of results
           let page;
+
+          // Maintain array of all user IDs extracted so far (for membership queries)
           const collectedIds: string[] = [...adapter.state.users.ids];
+
+          // ─────────────────────────────────────────────────────────────────────
+          // Pagination Loop - Fetch all pages of users
+          // ─────────────────────────────────────────────────────────────────────
+
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            // ───────────────────────────────────────────────────────────────────
+            // Check for timeout before API call
+            // ───────────────────────────────────────────────────────────────────
+            // If worker is approaching timeout, save state and exit gracefully
+            // The worker will be re-invoked and resume from this point
+            if (adapter.isTimeout) {
+              await wait(ADAPTER_TIMEOUT_DELAY_MS); // Brief delay before exit
+              return; // Exit gracefully - state is already saved
+            }
+
+            // ───────────────────────────────────────────────────────────────────
+            // Fetch page of users (delta query or full list)
+            // ───────────────────────────────────────────────────────────────────
 
             if (isIncremental && adapter.state.deltaLinks.users) {
+              // INCREMENTAL SYNC: Use delta query to fetch only changed users
+              // Delta link from previous sync OR pagination nextLink if continuing
               page = await client.getUsersDelta(nextLink || adapter.state.deltaLinks.users);
             } else {
+              // FULL SYNC: Fetch all users using standard list endpoint
               page = await client.listUsersPage(nextLink);
             }
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            // ───────────────────────────────────────────────────────────────────
+            // Check for timeout after API call
+            // ───────────────────────────────────────────────────────────────────
+            // API call completed, but check timeout before processing results
+            if (adapter.isTimeout) {
+              await wait(ADAPTER_TIMEOUT_DELAY_MS); // Brief delay before exit
+              return; // Exit gracefully - current page will be re-fetched on next invocation
+            }
 
+            // ───────────────────────────────────────────────────────────────────
+            // Process and store users from current page
+            // ───────────────────────────────────────────────────────────────────
+
+            // Filter out deleted users (marked with @removed property in delta queries)
+            // Delta queries may return users with @removed: { reason: "deleted" }
             const activeItems = page.value.filter((u) => !u['@removed']);
+
+            // Transform raw Graph API users into DevRev format
             const normalized = activeItems.map((u) => normalizeUser(u));
+
+            // Push normalized users to DevRev data repository
             await adapter.getRepo(ENTITY_NAMES.USERS)?.push(normalized);
+
+            // Collect user IDs for later use (group membership queries)
             collectedIds.push(...activeItems.map((u) => u.id));
 
+            // ───────────────────────────────────────────────────────────────────
+            // Update extraction state for checkpoint/resumption
+            // ───────────────────────────────────────────────────────────────────
+
+            // Save collected IDs in state
             adapter.state.users.ids = collectedIds;
+
+            // Increment extraction count for metrics
             adapter.state.users.extractedCount += normalized.length;
+
+            // Extract pagination token for next page
             nextLink = page['@odata.nextLink'];
+
+            // Save pagination token in state for potential resumption
             adapter.state.users.nextLink = nextLink;
+
+            // Continue loop if more pages exist
           } while (nextLink);
 
+          // ─────────────────────────────────────────────────────────────────────
+          // Extraction Complete - Save delta link and mark as done
+          // ─────────────────────────────────────────────────────────────────────
+
           // Store delta link for next incremental sync
+          // Delta link is only present after final page is retrieved
           if (page?.['@odata.deltaLink']) {
             adapter.state.deltaLinks.users = page['@odata.deltaLink'];
           }
+
+          // Mark entity as completed
           adapter.state.users.completed = true;
+
+          // Clear pagination token (no longer needed)
           adapter.state.users.nextLink = undefined;
+
+          // Log extraction metrics
           console.log(`[data-extraction] Users extracted: ${adapter.state.users.extractedCount}`);
+
         } catch (error) {
+          // ─────────────────────────────────────────────────────────────────────
+          // Error Handling - Handle various error scenarios
+          // ─────────────────────────────────────────────────────────────────────
+
+          // ── Rate Limiting (HTTP 429) ───────────────────────────────────────
+          // Microsoft Graph API rate limit exceeded
+          // Request a delay and retry the operation
           if (isRateLimitError(error)) {
+            // Extract retry delay from Retry-After header (or use default)
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
+
+            // Emit delay event to pause extraction and retry later
             await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
+
+            // Exit - worker will be re-invoked after delay
             return;
           }
+
+          // ── Authentication Error (HTTP 401) ────────────────────────────────
+          // Access token expired or invalid
+          // Request a delay to refresh token
           if (isAuthError(error)) {
             console.warn('[data-extraction] Auth error on users — requesting delay');
+
+            // Request 60-second delay for token refresh
             await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+
+            // Exit - worker will re-authenticate on next invocation
             return;
           }
+
+          // ── Delta Token Expired (HTTP 410 or syncStateNotFound) ───────────
+          // Delta token is no longer valid (> 7 days old or directory changed significantly)
+          // Reset to full sync for this entity
           if (isDeltaExpiredError(error)) {
             console.warn('[data-extraction] Delta token expired for users — resetting to full sync');
+
+            // Clear delta link - next invocation will do full sync
             adapter.state.deltaLinks.users = undefined;
+
+            // Mark entity as incomplete so it gets re-extracted
             adapter.state.users.completed = false;
+
+            // Clear pagination token to start from beginning
             adapter.state.users.nextLink = undefined;
-            // Fall through — entity will be re-extracted on next invocation
+
+            // Exit - entity will be re-extracted with full sync on next invocation
             return;
           }
+
+          // ── Permission Denied (HTTP 403) ───────────────────────────────────
+          // Missing required Graph API permission (User.Read.All)
+          // Skip this entity and continue with others
           if (isForbiddenError(error)) {
             console.log(`[data-extraction] Permission denied for users (HTTP 403) — skipping`);
+
+            // Mark entity as completed (but skipped) to prevent retry
             adapter.state.users = { ...adapter.state.users, completed: true, skipped: true };
+
+            // Track skipped entity for final summary log
             skippedEntities.push(ENTITY_NAMES.USERS);
+
+            // Continue to next entity (don't throw error)
           } else {
+            // ── Unexpected Error ─────────────────────────────────────────────
+            // Unknown error - fail the extraction with details
             throw error;
           }
         }
       }
 
-      // ── 2. Groups ─────────────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #2: GROUPS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all groups (security groups, Microsoft 365 groups, distribution lists)
+      // Supports: ✅ Incremental sync, ✅ Pagination, ✅ Resumption
+      // Required Permission: Group.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.groups.completed) {
         try {
           let nextLink = adapter.state.groups.nextLink;
@@ -217,7 +576,14 @@ processTask({
         }
       }
 
-      // ── 3. Group Members ──────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #3: GROUP MEMBERS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract membership relationships for all groups (nested entity extraction)
+      // Note: For each group, fetches all its members (users, groups, service principals)
+      // Supports: ❌ No delta queries (re-fetch for changed groups), ✅ Pagination
+      // Required Permission: GroupMember.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
       if (!adapter.state.groupMembers.completed) {
         try {
           const groupIds = adapter.state.groups.ids;
@@ -271,7 +637,14 @@ processTask({
         }
       }
 
-      // ── 4. Directory Roles ────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #4: DIRECTORY ROLES
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all directory roles (admin roles like Global Administrator, User Administrator)
+      // Note: Returns all roles in single response (no pagination support)
+      // Supports: ✅ Incremental sync, ❌ No pagination (< 100 roles typically)
+      // Required Permission: RoleManagement.Read.Directory
+      // ═══════════════════════════════════════════════════════════════════════
       if (!adapter.state.directoryRoles.completed) {
         try {
           let nextLink = adapter.state.directoryRoles.nextLink;
@@ -331,15 +704,28 @@ processTask({
         }
       }
 
-      // ── 5. Role Members ───────────────────────────────────────────────────
-      // NOTE: Role members are skipped because directory_roles are custom objects,
-      // and DevRev doesn't support object_member relationships with custom objects.
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #5: ROLE MEMBERS (SKIPPED)
+      // ═══════════════════════════════════════════════════════════════════════
+      // NOTE: Role member extraction is currently skipped because directory_roles
+      // are custom objects in DevRev, and the platform doesn't support
+      // object_member relationships with custom objects. This may be enabled
+      // in a future version when DevRev supports custom object relationships.
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.roleMembers.completed) {
         adapter.state.roleMembers.completed = true;
         console.log(`[data-extraction] Role members extraction skipped (custom objects not supported)`);
       }
 
-      // ── 6. Applications ───────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #6: APPLICATIONS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all application registrations (app registrations in Azure AD)
+      // Supports: ✅ Incremental sync, ✅ Pagination, ✅ Resumption
+      // Required Permission: Application.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.applications.completed) {
         try {
           let nextLink = adapter.state.applications.nextLink;
@@ -396,7 +782,14 @@ processTask({
         }
       }
 
-      // ── 7. Service Principals ─────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #7: SERVICE PRINCIPALS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all service principals (enterprise applications)
+      // Supports: ✅ Incremental sync, ✅ Pagination, ✅ Resumption
+      // Required Permission: Application.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.servicePrincipals.completed) {
         try {
           let nextLink = adapter.state.servicePrincipals.nextLink;
@@ -456,7 +849,15 @@ processTask({
         }
       }
 
-      // ── 8. Devices ────────────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #8: DEVICES
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all registered devices with extended details and owner information
+      // Enriches each device with manufacturer, model, and registered owner details
+      // Supports: ✅ Incremental sync, ✅ Pagination, ✅ Resumption
+      // Required Permission: Device.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.devices.completed) {
         try {
           let nextLink = adapter.state.devices.nextLink;
@@ -542,7 +943,14 @@ processTask({
         }
       }
 
-      // ── 9. Org Contacts ───────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #9: ORGANIZATIONAL CONTACTS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all organizational contacts (external contacts synced from on-prem)
+      // Supports: ✅ Incremental sync, ✅ Pagination, ✅ Resumption
+      // Required Permission: OrgContact.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.orgContacts.completed) {
         try {
           let nextLink = adapter.state.orgContacts.nextLink;
@@ -599,7 +1007,15 @@ processTask({
         }
       }
 
-      // ── 10. App Roles ─────────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #10: APP ROLES
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all app roles (application permissions) for each service principal
+      // Nested extraction: Iterates through all service principals
+      // Supports: ❌ No delta queries, ✅ Resumption
+      // Required Permission: Application.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.appRoles.completed) {
         try {
           const spIds = adapter.state.servicePrincipals.ids;
@@ -647,7 +1063,15 @@ processTask({
         }
       }
 
-      // ── 11. App Role Assignments ──────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #11: APP ROLE ASSIGNMENTS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all app role assignments (who has which app permissions)
+      // Nested extraction: Iterates through all service principals
+      // Supports: ❌ No delta queries, ✅ Pagination, ✅ Resumption
+      // Required Permission: Application.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.appRoleAssignments.completed) {
         try {
           const spIds = adapter.state.servicePrincipals.ids;
@@ -703,7 +1127,15 @@ processTask({
         }
       }
 
-      // ── 12. Authentication Methods ────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #12: AUTHENTICATION METHODS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all authentication methods (MFA methods) for each user
+      // Nested extraction: Iterates through all users
+      // Supports: ❌ No delta queries, ❌ No pagination (few methods per user)
+      // Required Permission: UserAuthenticationMethod.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.authenticationMethods.completed) {
         try {
           const userIds = adapter.state.users.ids;
@@ -751,7 +1183,15 @@ processTask({
         }
       }
 
-      // ── 13. Authentication Methods Policy ─────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #13: AUTHENTICATION METHODS POLICY
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract tenant-wide authentication methods policy (single policy object)
+      // Defines which MFA methods are enabled/disabled and registration campaigns
+      // Supports: ❌ No delta queries (single object), ❌ No pagination
+      // Required Permission: Policy.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.authenticationMethodsPolicy.completed) {
         try {
           const policy = await client.getAuthenticationMethodsPolicy();
@@ -780,7 +1220,15 @@ processTask({
         }
       }
 
-      // ── 14. License Assignments ───────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #14: LICENSE ASSIGNMENTS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all license assignments (Microsoft 365/Azure licenses) for each user
+      // Nested extraction: Iterates through all users
+      // Supports: ❌ No delta queries, ❌ No pagination (few licenses per user)
+      // Required Permission: Organization.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.licenseAssignments.completed) {
         try {
           const userIds = adapter.state.users.ids;
@@ -828,7 +1276,15 @@ processTask({
         }
       }
 
-      // ── 15. PIM Eligible Roles ────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #15: PIM ELIGIBLE ROLES
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract Privileged Identity Management (PIM) role eligibility schedules
+      // Requires: Azure AD Premium P2 license
+      // Supports: ❌ No delta queries, ✅ Pagination, ✅ Resumption
+      // Required Permission: RoleEligibilitySchedule.Read.Directory
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.pimEligibleRoles.completed) {
         try {
           let nextLink = adapter.state.pimEligibleRoles.nextLink;
@@ -875,7 +1331,14 @@ processTask({
         }
       }
 
-      // ── 16. Conditional Access Policies ───────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #16: CONDITIONAL ACCESS POLICIES
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract all Conditional Access policies (access control policies)
+      // Supports: ❌ No delta queries, ✅ Pagination, ✅ Resumption
+      // Required Permission: Policy.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.conditionalAccessPolicies.completed) {
         try {
           let nextLink = adapter.state.conditionalAccessPolicies.nextLink;
@@ -922,7 +1385,15 @@ processTask({
         }
       }
 
-      // ── 17. Lifecycle Workflows ───────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #17: LIFECYCLE WORKFLOWS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract identity lifecycle workflows (onboarding/offboarding automation)
+      // Requires: Azure AD Governance license (part of Azure AD P2 or E5)
+      // Supports: ❌ No delta queries, ✅ Pagination, ✅ Resumption
+      // Required Permission: LifecycleWorkflows.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.lifecycleWorkflows.completed) {
         try {
           let nextLink = adapter.state.lifecycleWorkflows.nextLink;
@@ -969,7 +1440,15 @@ processTask({
         }
       }
 
-      // ── 18. Directory Audit Logs ──────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #18: DIRECTORY AUDIT LOGS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract directory audit logs (changes to users, groups, apps, policies)
+      // Time-windowed: Fetches logs since last sync (7-30 day retention)
+      // Supports: ❌ No delta queries (time-based), ✅ Pagination, ✅ Resumption
+      // Required Permission: AuditLog.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.directoryAuditLogs.completed) {
         try {
           // Fetch audit logs from last 7 days
@@ -1019,7 +1498,15 @@ processTask({
         }
       }
 
-      // ── 19. Sign-In Logs ──────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // ENTITY EXTRACTION #19: SIGN-IN LOGS
+      // ═══════════════════════════════════════════════════════════════════════
+      // Extract user sign-in logs (successful and failed authentication attempts)
+      // Time-windowed: Fetches logs since last sync (7-30 day retention)
+      // Supports: ❌ No delta queries (time-based), ✅ Pagination, ✅ Resumption
+      // Required Permission: AuditLog.Read.All
+      // ═══════════════════════════════════════════════════════════════════════
+
       if (!adapter.state.signInLogs.completed) {
         try {
           // Fetch sign-in logs from last 7 days
@@ -1069,19 +1556,64 @@ processTask({
         }
       }
 
-      // Log summary of skipped entities
+      // ═══════════════════════════════════════════════════════════════════════
+      // EXTRACTION COMPLETE - FINAL CLEANUP AND REPORTING
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Log Summary of Skipped Entities
+      // ─────────────────────────────────────────────────────────────────────
+      // Some entities may be skipped due to:
+      // - Missing Microsoft Graph API permissions (HTTP 403)
+      // - License requirements not met (P2, Governance)
+      // - Entity type not available in tenant (HTTP 400)
+
       if (skippedEntities.length > 0) {
-        console.log(`[data-extraction] Skipped ${skippedEntities.length} entities (not available for this tenant): ${skippedEntities.join(', ')}`);
+        console.log(
+          `[data-extraction] Skipped ${skippedEntities.length} entities due to missing permissions or availability: ${skippedEntities.join(', ')}`
+        );
       }
 
-      // Persist successful sync timestamp
+      // ─────────────────────────────────────────────────────────────────────
+      // Persist Successful Sync Timestamp
+      // ─────────────────────────────────────────────────────────────────────
+      // Save the start timestamp of this successful sync
+      // This will be used as the baseline for the next incremental sync
+      // Also used for audit log time-windowing
+
       adapter.state.lastSuccessfulSyncStarted = adapter.state.lastSyncStarted;
+
+      // Clear current sync timestamp (will be set again on next sync)
       adapter.state.lastSyncStarted = undefined;
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Emit Completion Event
+      // ─────────────────────────────────────────────────────────────────────
+      // Signal to DevRev framework that extraction completed successfully
+      // All extracted data has been pushed to repositories and is ready for ingestion
 
       console.log(`[data-extraction] Extraction completed successfully`);
       await adapter.emit(ExtractorEventType.DataExtractionDone);
+
     } catch (error) {
+      // ═══════════════════════════════════════════════════════════════════════
+      // UNRECOVERABLE ERROR HANDLER
+      // ═══════════════════════════════════════════════════════════════════════
+      // This catch block handles unexpected errors that weren't caught by
+      // entity-specific error handlers. These are fatal errors that prevent
+      // the entire extraction from completing.
+      //
+      // Common causes:
+      // - Network failures during critical operations
+      // - Invalid credentials (should be caught earlier but might slip through)
+      // - Programming errors (bugs in the connector code)
+      // - DevRev framework errors
+
+      // Log detailed error information for debugging
       console.error('[data-extraction] Unrecoverable error:', formatError(error));
+
+      // Emit error event to signal extraction failure
+      // This will mark the sync as failed in DevRev
       await adapter.emit(ExtractorEventType.DataExtractionError, {
         error: { message: formatError(error) },
       });
