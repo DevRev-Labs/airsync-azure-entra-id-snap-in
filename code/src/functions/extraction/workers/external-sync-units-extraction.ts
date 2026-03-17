@@ -1,7 +1,8 @@
 import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+
 import { State } from '../../common/state';
-import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
 import { formatError } from '../../common/utils';
+import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
 
 processTask({
   onTimeout: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {

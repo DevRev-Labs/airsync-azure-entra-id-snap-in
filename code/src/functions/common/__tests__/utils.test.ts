@@ -23,7 +23,8 @@
  * - validateEmail() - Email format validation
  */
 
-import axios, { AxiosError } from 'axios';
+import { AxiosError } from 'axios';
+
 import {
   wait,
   formatError,

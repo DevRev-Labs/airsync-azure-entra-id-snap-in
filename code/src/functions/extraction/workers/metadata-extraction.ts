@@ -78,20 +78,11 @@
 // Import DevRev Airdrop framework types and functions
 import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
 
-// Import state management types
-import { State } from '../../common/state';
-
-// Import Microsoft Graph API client and authentication
-import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
-
-// Import utility functions for error handling
-import { formatError } from '../../common/utils';
-
-// Import security validation functions
+// Import common utilities and security functions
 import { validateConnectionData } from '../../common/security';
-
-// Import base External Domain Metadata (static schema definition)
-// This defines the standard fields for all entity types
+import { State } from '../../common/state';
+import { formatError } from '../../common/utils';
+import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
 import baseEdm from '../../external-system/external_domain_metadata.json';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -133,6 +124,9 @@ processTask({
       // ── Step 4: Load Base External Domain Metadata ──────────────────────────
       // Clone the static EDM schema to avoid mutating the original
       // This base EDM includes all standard Azure AD fields for users, groups, etc.
+      // Clone base EDM for enrichment with discovered extension properties
+      // 'any' is required here because we dynamically add extension fields at runtime
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const enrichedEdm = structuredClone(baseEdm) as any;
 
       // ── Step 5: Discover Extension Properties ───────────────────────────────

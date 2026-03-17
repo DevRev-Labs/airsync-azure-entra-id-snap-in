@@ -23,6 +23,7 @@
  */
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
+
 import { acquireAccessToken, EntraIDClient } from '../entra_id_api';
 import {
   EntraUser,
@@ -304,7 +305,7 @@ describe('EntraIDClient Constructor', () => {
 
     mockedAxios.create.mockReturnValueOnce(mockAxiosInstance);
 
-    const client = new EntraIDClient('mock-access-token');
+    const _client = new EntraIDClient('mock-access-token');
 
     expect(mockedAxios.create).toHaveBeenCalledWith({
       baseURL: 'https://graph.microsoft.com/v1.0',

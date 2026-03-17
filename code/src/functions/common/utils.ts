@@ -6,7 +6,7 @@
  */
 
 // Import axios library for HTTP error detection
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
 
 /**
  * Asynchronous delay utility using Promise-based setTimeout

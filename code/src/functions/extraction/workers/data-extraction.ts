@@ -118,12 +118,20 @@
 import { EventType, ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
 
 // Import state management types and initializer
+import { ADAPTER_TIMEOUT_DELAY_MS, ENTITY_NAMES, DEFAULT_RATE_LIMIT_DELAY_SECONDS } from '../../common/constants';
+import { validateConnectionData } from '../../common/security';
 import { getInitialState, State } from '../../common/state';
-
 // Import Microsoft Graph API client and authentication
-import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
-
-// Import all normalization functions for transforming raw API data
+import {
+  formatError,
+  isAuthError,
+  isBadRequestError,
+  isDeltaExpiredError,
+  isForbiddenError,
+  isRateLimitError,
+  getRetryAfterSeconds,
+  wait,
+} from '../../common/utils';
 import {
   normalizeApplication,
   normalizeDevice,
@@ -131,7 +139,6 @@ import {
   normalizeGroup,
   normalizeGroupMember,
   normalizeOrgContact,
-  normalizeRoleMember,
   normalizeServicePrincipal,
   normalizeUser,
   normalizeAppRole,
@@ -145,24 +152,15 @@ import {
   normalizeDirectoryAudit,
   normalizeSignIn,
 } from '../../external-system/data-normalization';
+import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
+
+// Import all normalization functions for transforming raw API data
 
 // Import configuration constants
-import { ADAPTER_TIMEOUT_DELAY_MS, ENTITY_NAMES, DEFAULT_RATE_LIMIT_DELAY_SECONDS } from '../../common/constants';
 
 // Import utility functions for error handling and delays
-import {
-  formatError,
-  isAuthError,
-  isBadRequestError,
-  isDeltaExpiredError,
-  isForbiddenError,
-  isRateLimitError,
-  getRetryAfterSeconds,
-  wait,
-} from '../../common/utils';
 
 // Import security validation functions
-import { validateConnectionData, sanitizeLogMessage } from '../../common/security';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════

@@ -1,8 +1,10 @@
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
+
 import dotenv from 'dotenv';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+
 import { functionFactory, FunctionFactoryType } from './function-factory';
 
 dotenv.config();
@@ -22,26 +24,36 @@ void (async () => {
     },
   }).argv;
 
-  const fixturePath = path.resolve(__dirname, 'fixtures', argv.fixturePath);
-  if (!fs.existsSync(fixturePath)) {
-    console.error(`Fixture file not found: ${fixturePath}`);
-    process.exit(1);
+  // Resolve fixture path and validate it's within the fixtures directory
+  const fixturesDir = path.resolve(__dirname, 'fixtures');
+  const fixturePath = path.resolve(fixturesDir, argv.fixturePath);
+
+  // Security: Ensure path is within fixtures directory (prevent path traversal)
+  if (!fixturePath.startsWith(fixturesDir)) {
+    throw new Error(`Invalid fixture path: must be within fixtures directory`);
   }
 
+  // Check if fixture file exists
+  // eslint-disable-next-line security/detect-non-literal-fs-filename
+  if (!fs.existsSync(fixturePath)) {
+    throw new Error(`Fixture file not found: ${fixturePath}`);
+  }
+
+  // Read fixture file
+  // eslint-disable-next-line security/detect-non-literal-fs-filename
   const event = JSON.parse(fs.readFileSync(fixturePath, 'utf-8'));
 
   // Inject DEVREV_PAT from .env if available
-  if (process.env.DEVREV_PAT) {
-    event.context = event.context || {};
-    event.context.secrets = event.context.secrets || {};
+  if (process.env.DEVREV_PAT !== undefined) {
+    event.context = event.context ?? {};
+    event.context.secrets = event.context.secrets ?? {};
     event.context.secrets.service_account_token = process.env.DEVREV_PAT;
   }
 
   const functionName = argv.functionName as FunctionFactoryType;
   const fn = functionFactory[functionName];
-  if (!fn) {
-    console.error(`Function '${functionName}' not found in factory`);
-    process.exit(1);
+  if (fn === undefined) {
+    throw new Error(`Function '${functionName}' not found in factory`);
   }
 
   console.log(`Running function '${functionName}' with fixture '${argv.fixturePath}'`);
@@ -49,5 +61,6 @@ void (async () => {
   console.log('Done.');
 })().catch((error: unknown) => {
   console.error('Unhandled error:', error);
-  process.exit(1);
+  // Exit with error code for CI/CD pipelines
+  throw error;
 });

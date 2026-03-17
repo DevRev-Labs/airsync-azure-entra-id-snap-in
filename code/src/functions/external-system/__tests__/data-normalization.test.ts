@@ -36,7 +36,6 @@ import {
   normalizeDirectoryAudit,
   normalizeSignIn,
 } from '../data-normalization';
-
 import {
   EntraUser,
   EntraGroup,

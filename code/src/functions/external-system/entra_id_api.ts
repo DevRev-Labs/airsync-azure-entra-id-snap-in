@@ -29,7 +29,16 @@
 // Import axios HTTP client library and types
 import axios, { AxiosInstance } from 'axios';
 
-// Import all Microsoft Graph API entity type definitions
+// Import configuration constants (URLs, timeouts, limits)
+import { GRAPH_BASE_URL, HTTP_REQUEST_TIMEOUT_MS, MAX_RETRIES, PAGE_SIZE } from '../common/constants';
+// Import utility functions for error handling and validation
+import {
+  validateTenantId,
+  validateAzureGuid,
+  validateMaxLength,
+  validateGraphUrl,
+} from '../common/utils';
+
 import {
   EntraApplication,
   EntraDevice,
@@ -53,24 +62,6 @@ import {
   EntraDirectoryAudit,
   EntraSignIn,
 } from './types';
-
-// Import configuration constants (URLs, timeouts, limits)
-import {
-  DEFAULT_RATE_LIMIT_DELAY_SECONDS,
-  GRAPH_BASE_URL,
-  HTTP_REQUEST_TIMEOUT_MS,
-  MAX_RETRIES,
-  PAGE_SIZE,
-} from '../common/constants';
-
-// Import utility functions for error handling and validation
-import {
-  formatError,
-  validateTenantId,
-  validateAzureGuid,
-  validateMaxLength,
-  validateGraphUrl,
-} from '../common/utils';
 
 /**
  * Acquire OAuth 2.0 Access Token using Client Credentials Flow
