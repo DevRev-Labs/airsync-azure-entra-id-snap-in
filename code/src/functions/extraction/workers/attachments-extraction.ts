@@ -1,4 +1,5 @@
 import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+
 import { State } from '../../common/state';
 
 // Azure Entra ID does not have file attachments.

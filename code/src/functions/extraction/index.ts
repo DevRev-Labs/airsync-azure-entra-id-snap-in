@@ -1,4 +1,5 @@
 import { AirdropEvent, spawn } from '@devrev/ts-adaas';
+
 import { getInitialState, State } from '../common/state';
 import initialDomainMapping from '../external-system/initial_domain_mapping.json';
 
