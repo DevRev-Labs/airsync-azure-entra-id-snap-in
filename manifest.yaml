@@ -25,6 +25,20 @@ description: |
 
 service_account:
   display_name: Azure Entra ID Bot
+  scopes:
+    self:
+      - scope: sync_mapper_record:write
+        optional: false
+        reason: Write sync mapper records while importing Entra ID objects into DevRev.
+      - scope: sync_mapper_record:read
+        optional: false
+        reason: Read sync mapper records for incremental sync and mapping.
+      - scope: sync_unit:read
+        optional: false
+        reason: Read sync units for per-tenant Azure Entra ID extraction scope.
+      - scope: sync_snap_in:all
+        optional: false
+        reason: Run AirSync extraction, state, and snap-in lifecycle for this connector.
 
 functions:
   - name: extraction

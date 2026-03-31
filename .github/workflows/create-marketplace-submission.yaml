@@ -1,0 +1,31 @@
+name: Create marketplace submission
+
+on:
+  pull_request:
+    types: [closed]
+
+env:
+  GH_READ_PACKAGES_TOKEN: ${{ secrets.GH_READ_PACKAGES }}
+
+jobs:
+  create-marketplace-submission:
+    name: Create marketplace submission
+    if: github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify DevRev PAT secret
+        env:
+          DEVREV_PAT: ${{ secrets.DEVREV_DEV_PAT }}
+        if: ${{ env.DEVREV_PAT == '' }}
+        run: |
+          echo "::error::Set repository secret DEVREV_DEV_PAT (Settings → Secrets and variables → Actions). For fork PRs, GitHub does not pass secrets to pull_request workflows — use a branch on this repo or an alternate trigger. Promote flows use DEVREV_QA_PAT and DEVREV_PROD_PAT."
+          exit 1
+
+      - name: Create marketplace submission
+        uses: devrev/github-actions/create-marketplace-submission@create-marketplace-submission-v0.1.25
+        with:
+          code_ref_url: ${{ github.event.pull_request.url }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          read_actions_token: ${{ secrets.READ_GITHUB_ACTIONS_RELEASES }}
+        env:
+          DEVREV_PAT: ${{ secrets.DEVREV_DEV_PAT }}

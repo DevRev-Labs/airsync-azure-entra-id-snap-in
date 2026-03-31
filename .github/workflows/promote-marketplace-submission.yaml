@@ -1,0 +1,86 @@
+name: Promote marketplace submission
+
+on:
+  issue_comment:
+    types: [created]
+
+env:
+  GH_READ_PACKAGES_TOKEN: ${{ secrets.NPMJS_NPM_TOKEN }}
+
+jobs:
+  # issue_comment does not include issue.pull_request.merged_at — that field is missing from the
+  # webhook, so `if: ...merged_at` always fails and every job was skipped. We verify merge via the API instead.
+  promote-marketplace-submission-dev:
+    name: Promote marketplace submission in DEV
+    if: github.event.comment.body == '/promote dev' && github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require merged pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          merged=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.issue.number }}" --jq .merged)
+          if [ "$merged" != "true" ]; then
+            echo "::error::Only merged pull requests can be promoted. Merge the PR first, then comment again."
+            exit 1
+          fi
+
+      - name: Promote marketplace submission in DEV
+        uses: devrev/github-actions/create-marketplace-submission@create-marketplace-submission-v0.1.25
+        with:
+          code_ref_url: ${{ github.event.issue.pull_request.url }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          read_actions_token: ${{ secrets.READ_GITHUB_ACTIONS_RELEASES }}
+        env:
+          GITHUB_ACCESS_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+          DEVREV_PAT: ${{ secrets.DEVREV_DEV_PAT }}
+
+  promote-marketplace-submission-qa:
+    name: Promote marketplace submission in QA
+    if: github.event.comment.body == '/promote qa' && github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require merged pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          merged=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.issue.number }}" --jq .merged)
+          if [ "$merged" != "true" ]; then
+            echo "::error::Only merged pull requests can be promoted. Merge the PR first, then comment again."
+            exit 1
+          fi
+
+      - name: Promote marketplace submission in QA
+        uses: devrev/github-actions/create-marketplace-submission@create-marketplace-submission-v0.1.25
+        with:
+          code_ref_url: ${{ github.event.issue.pull_request.url }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          read_actions_token: ${{ secrets.READ_GITHUB_ACTIONS_RELEASES }}
+        env:
+          GITHUB_ACCESS_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+          DEVREV_PAT: ${{ secrets.DEVREV_QA_PAT }}
+
+  promote-marketplace-submission-prod:
+    name: Promote marketplace submission in PROD
+    if: github.event.comment.body == '/promote prod' && github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require merged pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          merged=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.issue.number }}" --jq .merged)
+          if [ "$merged" != "true" ]; then
+            echo "::error::Only merged pull requests can be promoted. Merge the PR first, then comment again."
+            exit 1
+          fi
+
+      - name: Promote marketplace submission in PROD
+        uses: devrev/github-actions/create-marketplace-submission@create-marketplace-submission-v0.1.25
+        with:
+          code_ref_url: ${{ github.event.issue.pull_request.url }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          read_actions_token: ${{ secrets.READ_GITHUB_ACTIONS_RELEASES }}
+        env:
+          GITHUB_ACCESS_TOKEN: ${{ secrets.GH_PACKAGES_READ_TOKEN }}
+          DEVREV_PAT: ${{ secrets.DEVREV_PROD_PAT }}
