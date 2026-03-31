@@ -1,2 +1,18 @@
-marketplace_listing_slug: airdrop-azure-entra-id
-snap_in_package_slug: airdrop-azure-entra-id
+# Marketplace submission config per environment.
+# After first submission, align snap_in_package_slug / listing slug with your DevRev org if different.
+# Add developer_connections (name + keyring_id) only if you add developer_keyrings to manifest.yaml.
+
+dev:
+  marketplace_listing_slug: airdrop-azure-entra-id
+  snap_in_package_slug: airdrop-azure-entra-id
+  developer_connections: []
+
+qa:
+  marketplace_listing_slug: airdrop-azure-entra-id
+  snap_in_package_slug: airdrop-azure-entra-id
+  developer_connections: []
+
+prod:
+  marketplace_listing_slug: airdrop-azure-entra-id
+  snap_in_package_slug: airdrop-azure-entra-id
+  developer_connections: []
