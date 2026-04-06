@@ -1,0 +1,454 @@
+# Azure Entra ID AirSync Connector
+
+## Overview
+
+The Azure Entra ID AirSync connector syncs identity and directory data from Microsoft Entra ID (formerly Azure Active Directory) to DevRev. This connector enables you to import users, groups, applications, devices, roles, policies, and audit logs from your Azure tenant into DevRev for unified identity management and access governance.
+
+The connector uses Microsoft Graph API to extract data and supports both full and incremental syncs. Data flows one-way from Azure Entra ID to DevRev.
+
+## What This Connector Syncs
+
+The connector extracts the following entities from your Azure Entra ID tenant:
+
+### Core Identity Entities
+
+| Entity | Description |
+|--------|-------------|
+| **Users** | All user accounts including guest users, with profile information (email, display name, job title, department, etc.) |
+| **Groups** | Security groups, Microsoft 365 groups, and distribution lists |
+| **Group Members** | Membership relationships between users and groups |
+| **Directory Roles** | Administrative roles (Global Administrator, User Administrator, etc.) |
+| **Role Members** | Assignments of directory roles to users |
+
+### Applications & Service Principals
+
+| Entity | Description |
+|--------|-------------|
+| **Applications** | App registrations in your Azure tenant |
+| **Service Principals** | Enterprise applications and managed identities |
+| **App Roles** | Custom application roles defined in service principals |
+| **App Role Assignments** | Assignments of app roles to users and groups |
+
+### Devices & Contacts
+
+| Entity | Description |
+|--------|-------------|
+| **Devices** | Azure AD joined, registered, and hybrid joined devices |
+| **Organizational Contacts** | External contacts not part of your directory |
+
+### Security & Governance
+
+| Entity | Description |
+|--------|-------------|
+| **Authentication Methods** | MFA methods registered by users (phone, authenticator app, etc.) |
+| **Authentication Methods Policy** | Tenant-wide MFA policy configuration |
+| **Conditional Access Policies** | Policies controlling access based on conditions (location, device, risk, etc.) |
+| **PIM Eligible Roles** | Privileged Identity Management role eligibility (requires Azure AD Premium P2) |
+| **Lifecycle Workflows** | Automated user lifecycle workflows (requires Entra ID Governance) |
+
+### Licenses & Audit
+
+| Entity | Description |
+|--------|-------------|
+| **License Assignments** | Microsoft 365 and Azure licenses assigned to users |
+| **Directory Audit Logs** | Audit trail of administrative actions in your tenant |
+| **Sign-In Logs** | User authentication events and sign-in activity |
+
+### Custom Attributes
+
+The connector also syncs **extension attributes** (custom fields) defined on users in your Azure tenant. These custom attributes are automatically mapped to DevRev custom fields.
+
+## Prerequisites
+
+Before installing the connector, you need:
+
+1. **Azure Entra ID tenant** with appropriate licenses
+2. **Azure AD Administrator access** to create app registrations and grant permissions
+3. **DevRev organization** with AirSync enabled
+
+## Setup in Azure Entra ID
+
+### Step 1: Create an App Registration
+
+1. Sign in to the [Azure Portal](https://portal.azure.com)
+2. Navigate to **Azure Active Directory** > **App registrations**
+3. Click **New registration**
+4. Enter a name (e.g., "DevRev AirSync Connector")
+5. Select **Accounts in this organizational directory only** (single tenant)
+6. Leave **Redirect URI** blank
+7. Click **Register**
+
+### Step 2: Note Your Credentials
+
+After creating the app registration, note down these values (you'll need them to configure the connector):
+
+1. **Tenant ID**: Found under **Overview** > **Directory (tenant) ID**
+   - Can also use your Azure domain name (e.g., `contoso.onmicrosoft.com`)
+2. **Client ID**: Found under **Overview** > **Application (client) ID**
+
+### Step 3: Create a Client Secret
+
+1. In your app registration, go to **Certificates & secrets**
+2. Click **New client secret**
+3. Enter a description (e.g., "DevRev Connector Secret")
+4. Select an expiration period:
+   - **Recommended**: 24 months (you'll need to rotate before expiry)
+   - Set a calendar reminder to rotate the secret before it expires
+5. Click **Add**
+6. **Important**: Copy the secret **Value** immediately (it won't be shown again)
+
+### Step 4: Grant API Permissions
+
+1. In your app registration, go to **API permissions**
+2. Click **Add a permission**
+3. Select **Microsoft Graph** > **Application permissions**
+4. Add the following permissions:
+
+#### Required Permissions (Core Entities)
+
+- `User.Read.All` - Read all users
+- `Group.Read.All` - Read all groups
+- `GroupMember.Read.All` - Read group memberships
+- `RoleManagement.Read.Directory` - Read directory roles
+- `Directory.Read.All` - Read directory data
+
+#### Optional Permissions (Extended Features)
+
+Add these if you want to sync additional entities:
+
+- `Application.Read.All` - Applications and service principals
+- `Device.Read.All` - Device registrations
+- `OrgContact.Read.All` - Organizational contacts
+- `UserAuthenticationMethod.Read.All` - MFA methods
+- `Policy.Read.All` - Conditional Access policies and MFA policy
+- `Organization.Read.All` - License information
+- `AuditLog.Read.All` - Audit logs and sign-in logs
+- `RoleEligibilitySchedule.Read.Directory` - PIM eligible roles (requires Azure AD Premium P2)
+- `LifecycleWorkflows.Read.All` - Lifecycle workflows (requires Entra ID Governance)
+
+#### Grant Admin Consent
+
+After adding all permissions:
+
+1. Click **Grant admin consent for [Your Organization]**
+2. Confirm by clicking **Yes**
+3. Verify all permissions show a green checkmark under **Status**
+
+**Important**: Without admin consent, the connector cannot access your Azure data.
+
+## Install the Connector in DevRev
+
+### Step 1: Access the DevRev Marketplace
+
+1. Log in to your DevRev organization
+2. Navigate to **Settings** > **Integrations** > **Marketplace**
+3. Search for **Azure Entra ID**
+4. Click on the Azure Entra ID connector card
+
+### Step 2: Install the Snap-in
+
+1. Click **Install**
+2. Review the permissions requested by the connector
+3. Click **Confirm** to complete installation
+
+## Configure the Connection
+
+### Step 1: Create a Connection
+
+1. After installation, click **Create connection** or navigate to **Settings** > **Integrations** > **Connections**
+2. Click **New connection** and select **Azure Entra ID**
+
+### Step 2: Enter Your Credentials
+
+Fill in the connection form with the values from your Azure app registration:
+
+| Field | Value | Example |
+|-------|-------|---------|
+| **Connection Name** | A friendly name for this connection | "Production Azure Tenant" |
+| **Tenant ID / Subdomain** | Your Azure tenant ID or domain name | `contoso.onmicrosoft.com` or `12345678-1234-1234-1234-123456789abc` |
+| **Client ID** | Application (Client) ID from Azure | `87654321-4321-4321-4321-210987654321` |
+| **Client Secret** | Client secret value from Azure | `abc123~XYZ789...` |
+
+### Step 3: Test and Save
+
+1. Click **Test Connection** to verify credentials
+2. If the test succeeds, click **Save**
+3. If the test fails, verify:
+   - Credentials are copied correctly (no extra spaces)
+   - Admin consent was granted for all permissions
+   - The client secret hasn't expired
+
+## Run Your First Sync
+
+### Initial Sync (Full Sync)
+
+The first sync extracts all entities from your Azure tenant:
+
+1. Navigate to **Settings** > **Integrations** > **Connections**
+2. Find your Azure Entra ID connection
+3. Click **Sync now** or **Run sync**
+4. Select **Full sync**
+5. Click **Start sync**
+
+**What happens during initial sync:**
+- The connector authenticates to Microsoft Graph API
+- Extracts all entities based on granted permissions
+- Processes entities in order (users, groups, roles, etc.)
+- Stores data in DevRev with proper mappings
+- Creates sync checkpoint for incremental syncs
+
+**Duration**: Initial sync time depends on tenant size:
+- Small tenant (< 1,000 users): 5-15 minutes
+- Medium tenant (1,000-10,000 users): 15-60 minutes
+- Large tenant (> 10,000 users): 1-3 hours
+
+### Incremental Sync (Delta Sync)
+
+After the initial sync, subsequent syncs only fetch changed entities:
+
+1. Click **Sync now** again
+2. Select **Incremental sync** (default)
+3. Click **Start sync**
+
+**What happens during incremental sync:**
+- Uses Microsoft Graph delta queries
+- Only fetches entities that changed since last sync
+- Much faster than full sync (typically completes in minutes)
+- Automatically handles deletions
+
+### Schedule Automatic Syncs
+
+To keep data up-to-date automatically:
+
+1. In your connection settings, click **Schedule sync**
+2. Choose a sync frequency:
+   - **Every hour** - For real-time identity management
+   - **Every 6 hours** - Balanced (recommended)
+   - **Daily** - For less critical integrations
+3. Select sync time if using daily schedule
+4. Click **Save schedule**
+
+## Understanding Sync Behavior
+
+### What Gets Synced
+
+- **New entities**: Added to DevRev
+- **Updated entities**: Existing records updated with new data
+- **Deleted entities**: Marked as deleted in DevRev (soft delete)
+- **Custom attributes**: Azure extension properties map to DevRev custom fields
+
+### Incremental Sync Details
+
+The connector uses Microsoft Graph delta queries to efficiently track changes:
+
+- Delta tokens are valid for 7 days
+- If a delta token expires, the connector automatically falls back to full sync
+- Some entities (like audit logs) use time-windowed queries instead of delta
+
+### Permission-Based Sync
+
+The connector gracefully handles missing permissions:
+
+- If a permission is missing, that entity type is skipped
+- Other entities continue syncing normally
+- Warnings are logged for missing permissions
+- No sync failure occurs
+
+## Best Practices
+
+### Security
+
+1. **Rotate secrets regularly**: Set calendar reminders to rotate client secrets before expiry
+2. **Use least privilege**: Only grant permissions for entities you need to sync
+3. **Monitor access**: Review sign-in logs for the service principal regularly
+4. **Separate environments**: Use different app registrations for dev/staging/production
+
+### Performance
+
+1. **Schedule syncs during off-peak hours**: For large tenants, schedule full syncs during nights or weekends
+2. **Use incremental syncs**: Only run full syncs when necessary (after configuration changes)
+3. **Monitor sync duration**: If syncs take too long, contact DevRev support to optimize
+
+### Reliability
+
+1. **Test before production**: Verify in a test DevRev org first
+2. **Monitor sync status**: Check for failed syncs regularly
+3. **Keep permissions updated**: If you add new entities, update API permissions
+4. **Document custom attributes**: Maintain a list of Azure extension properties and their DevRev mappings
+
+### Audit & Compliance
+
+1. **Enable audit logging**: Ensure `AuditLog.Read.All` permission is granted
+2. **Review sync logs**: Periodically review what data is being synced
+3. **Understand data residency**: Data flows from Azure to DevRev (check both systems' data residency)
+4. **Set retention policies**: Configure how long DevRev retains synced data
+
+## Troubleshooting
+
+### Connection Test Fails
+
+**Problem**: "Authentication failed" or "Invalid credentials"
+
+**Solutions**:
+- Verify Tenant ID, Client ID, and Client Secret are correct
+- Ensure no extra spaces when copying credentials
+- Check if client secret has expired (create a new one if needed)
+- Confirm admin consent was granted
+
+**Problem**: "Permission denied" or "Insufficient privileges"
+
+**Solutions**:
+- Verify all required permissions are granted
+- Ensure admin consent was clicked (green checkmarks in Azure Portal)
+- Wait 5-10 minutes after granting consent (propagation delay)
+- Try revoking and re-granting admin consent
+
+### Sync Fails or Gets Stuck
+
+**Problem**: Sync shows "In Progress" for hours
+
+**Solutions**:
+- Large tenants may take several hours for initial sync (this is normal)
+- Check DevRev status page for any platform issues
+- If stuck for more than 6 hours, cancel and retry sync
+- Contact DevRev support if issue persists
+
+**Problem**: "Rate limit exceeded" error
+
+**Solutions**:
+- Microsoft Graph API has throttling limits
+- Wait 15-30 minutes before retrying
+- Reduce sync frequency for very large tenants
+- Connector automatically retries with exponential backoff
+
+**Problem**: Some entities not syncing
+
+**Solutions**:
+- Check if required permissions are granted for those entities
+- PIM roles require Azure AD Premium P2 license
+- Lifecycle workflows require Entra ID Governance license
+- Review sync logs for permission warnings
+
+### Data Discrepancies
+
+**Problem**: User count in DevRev doesn't match Azure
+
+**Solutions**:
+- Guest users are included in sync (may not be visible in Azure portal count)
+- Deleted users are soft-deleted in DevRev (may still appear in count)
+- Run a fresh full sync to ensure data consistency
+- Verify filters or sync rules aren't excluding users
+
+**Problem**: Custom attributes not appearing
+
+**Solutions**:
+- Azure extension properties must be defined in Azure first
+- Wait for full sync cycle to complete after adding extension properties
+- Verify extension property naming follows Azure conventions
+- Check DevRev custom field mappings
+
+### License Requirements
+
+**Problem**: "PIM Eligible Roles" not syncing
+
+**Solution**: Requires **Azure AD Premium P2** license. If you don't have P2, this entity will be skipped (this is expected behavior).
+
+**Problem**: "Lifecycle Workflows" not syncing
+
+**Solution**: Requires **Entra ID Governance** license. Without it, this entity is skipped automatically.
+
+## Getting Help
+
+### Support Resources
+
+- **DevRev Support**: Contact through your DevRev organization
+- **Documentation**: [support.devrev.ai](https://support.devrev.ai)
+- **Microsoft Graph API Docs**: [learn.microsoft.com/graph](https://learn.microsoft.com/en-us/graph/)
+
+### When Contacting Support
+
+Include the following information:
+1. Connection name and Azure tenant ID
+2. Error message or unexpected behavior
+3. Sync type (full or incremental)
+4. Approximate tenant size (number of users)
+5. Permissions granted in Azure app registration
+6. Timestamp of failed sync
+
+## Frequently Asked Questions
+
+### Does this connector modify Azure data?
+
+No. This connector is **read-only**. It only extracts data from Azure Entra ID and does not create, update, or delete any entities in Azure.
+
+### How often should I sync?
+
+**Recommended**: Every 6 hours for most organizations. Use hourly syncs if you need near real-time identity data. Daily syncs are sufficient for less critical use cases.
+
+### Can I sync multiple Azure tenants?
+
+Yes. Create a separate connection for each Azure tenant. Each tenant requires its own app registration in Azure.
+
+### What happens if my client secret expires?
+
+Syncs will fail with authentication errors. Create a new client secret in Azure Portal and update the connection in DevRev with the new secret value.
+
+### Does this work with Azure AD B2C?
+
+No. This connector is designed for Azure AD (Entra ID) corporate tenants, not B2C tenants.
+
+### Can I filter which users to sync?
+
+Currently, the connector syncs all users. Contact DevRev support if you need filtering capabilities for your use case.
+
+### Is guest user data synced?
+
+Yes. Both member users and guest users (external accounts invited to your tenant) are synced.
+
+### How long are audit logs retained?
+
+Azure audit log retention depends on your license:
+- Basic Azure AD: 7 days
+- Azure AD Premium P1/P2: 30 days
+
+The connector syncs logs within the available retention window.
+
+### Does this connector support Government Cloud?
+
+The connector uses the global Microsoft Graph API (`graph.microsoft.com`). For Azure Government Cloud support, contact DevRev.
+
+## Data Privacy & Compliance
+
+### Data Handling
+
+- **Data in transit**: Encrypted using TLS 1.2+
+- **Authentication**: OAuth 2.0 with client credentials
+- **API access**: Uses Microsoft Graph API with application permissions
+- **Data residency**: Check DevRev and Azure data residency policies for your regions
+
+### Compliance
+
+This connector follows:
+- Microsoft Graph API best practices
+- DevRev security standards
+- OWASP security guidelines for API integration
+
+### What Data is Synced
+
+The connector syncs:
+- User profile information (names, emails, job titles, etc.)
+- Group memberships and role assignments
+- Application and device metadata
+- Authentication events and audit logs
+
+The connector does **not** sync:
+- User passwords or credentials
+- File attachments or documents
+- Email content or calendar data
+- Chat or Teams messages
+
+---
+
+**Last Updated**: April 2026  
+**Connector Version**: 1.0.0  
+**Supported Azure API Version**: Microsoft Graph v1.0
