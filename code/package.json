@@ -17,9 +17,9 @@
     "lint:fix": "eslint --fix ."
   },
   "dependencies": {
-    "@devrev/ts-adaas": "^1.12.0",
+    "@devrev/ts-adaas": "^1.18.0",
     "@devrev/typescript-sdk": "^1.0.0",
-    "axios": "^1.7.9"
+    "axios": "^1.14.0"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",
@@ -30,8 +30,8 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.0",
     "@types/yargs": "^17.0.33",
-    "@typescript-eslint/eslint-plugin": "^8.18.2",
-    "@typescript-eslint/parser": "^8.18.2",
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
+    "@typescript-eslint/parser": "^8.58.0",
     "babel-jest": "^29.7.0",
     "body-parser": "^1.20.3",
     "dotenv": "^16.4.7",
@@ -45,7 +45,7 @@
     "nodemon": "^3.1.9",
     "prettier": "^3.4.2",
     "rimraf": "^6.0.1",
-    "ts-jest": "^29.2.5",
+    "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.0",
     "yargs": "^17.7.2"
