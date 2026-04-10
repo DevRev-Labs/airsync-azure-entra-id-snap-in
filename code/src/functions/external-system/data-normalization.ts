@@ -131,17 +131,6 @@ export function normalizeUser(user: EntraUser): NormalizedItem {
     display_name: user.displayName, // User's display name
     email: user.mail || user.userPrincipalName, // Prefer primary email, fallback to UPN
     full_name: fullName, // Constructed full name or null
-    job_title: user.jobTitle ?? null, // Job title
-    department: user.department ?? null, // Department
-    office_location: user.officeLocation ?? null, // Office location
-    mobile_phone: user.mobilePhone ?? null, // Mobile phone number
-    // Convert business phones array to comma-separated string for DevRev
-    // Example: ["+1-425-555-0100", "+1-425-555-0101"] → "+1-425-555-0100, +1-425-555-0101"
-    business_phones: user.businessPhones?.join(', ') ?? '', // Business phone numbers
-    account_enabled: user.accountEnabled ?? null, // Account enabled status
-    user_type: user.userType ?? null, // User type (Member, Guest)
-    // Deep link to Azure Portal user details page
-    item_url_field: `${ENTRA_ADMIN_URL}/#view/Microsoft_AAD_UsersAndTenants/UserProfileMenuBlade/~/overview/userId/${user.id}`,
   };
 
   // Dynamically include all custom extension attributes
@@ -180,16 +169,8 @@ export function normalizeGroup(group: EntraGroup): NormalizedItem {
     created_date: group.createdDateTime || FALLBACK_DATE, // When group was created
     modified_date: group.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
     data: {
-      name: group.displayName, // Group display name (legacy field name)
-      display_name: group.displayName, // Group display name
+      name: group.displayName, // Group display name
       description: group.description ?? null, // Group description (may be null)
-      mail: group.mail ?? null, // Group email address
-      // Convert group types array to comma-separated string for DevRev
-      // Example: ["Unified"] → "Unified", ["DynamicMembership", "Unified"] → "DynamicMembership, Unified"
-      group_types: group.groupTypes?.join(', ') ?? '', // Group types (e.g., 'Unified' for M365 groups)
-      security_enabled: group.securityEnabled ?? null, // Security group flag
-      mail_enabled: group.mailEnabled ?? null, // Mail-enabled flag
-      // Deep link to Azure Portal group details page
       item_url_field: `${ENTRA_ADMIN_URL}/#view/Microsoft_AAD_IAM/GroupDetailsMenuBlade/~/Overview/groupId/${group.id}`,
     },
   };
@@ -212,9 +193,6 @@ export function normalizeGroupMember(
   member: EntraDirectoryRoleMember,
   groupId: string
 ): NormalizedItem {
-  // Extract member type from @odata.type (e.g., "#microsoft.graph.user" -> "user")
-  const memberType = (member['@odata.type']?.split('.').pop() || 'unknown').toLowerCase();
-
   return {
     // Composite ID ensures uniqueness: "groupId_memberId" (underscore separator)
     id: `${groupId}_${member.id}`,
@@ -224,8 +202,6 @@ export function normalizeGroupMember(
     data: {
       member_id: member.id, // ID of the member (user/group/service principal)
       group_id: groupId, // ID of the parent group
-      member_type: memberType, // Type of member (user, group, serviceprincipal) - lowercase
-      member_display_name: member.displayName ?? null, // Display name of member
     },
   };
 }
@@ -488,18 +464,44 @@ export function normalizeAppRole(appRole: EntraAppRole, servicePrincipalId: stri
  * @param assignment - Raw app role assignment from /servicePrincipals/{id}/appRoleAssignedTo
  * @returns Normalized item representing a role assignment
  */
-export function normalizeAppRoleAssignment(assignment: EntraAppRoleAssignment): NormalizedItem {
+export function normalizeAppRoleAssignment(
+  assignment: EntraAppRoleAssignment,
+  appRoleNameMap?: Map<string, string>
+): NormalizedItem {
+  // Generate a meaningful display name for the assignment
+  // Format: "Principal → Role @ Resource"
+  const generateDisplayName = (): string => {
+    const principalName = assignment.principalDisplayName || 'Unknown Principal';
+    const resourceName = assignment.resourceDisplayName || 'Unknown Resource';
+
+    // Look up app role name from the map if available
+    const roleKey = `${assignment.resourceId}_${assignment.appRoleId}`;
+    const roleName = appRoleNameMap?.get(roleKey) || appRoleNameMap?.get(assignment.appRoleId);
+
+    if (roleName) {
+      return `${principalName} → ${roleName} @ ${resourceName}`;
+    }
+
+    // Fallback: use resource name and principal name
+    return `${principalName} → ${resourceName}`;
+  };
+
+  const displayName = generateDisplayName();
+
   return {
     id: assignment.id, // Unique assignment ID (GUID)
     created_date: assignment.createdDateTime || FALLBACK_DATE, // When assignment was created
     modified_date: assignment.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
     data: {
+      display_name: displayName, // Human-readable title shown in DevRev UI
       principal_id: assignment.principalId, // ID of user/group/SP receiving the role
       principal_type: assignment.principalType, // Type: "User", "Group", or "ServicePrincipal"
       principal_display_name: assignment.principalDisplayName, // Display name of the principal
       resource_id: assignment.resourceId, // ID of the service principal providing the role
       resource_display_name: assignment.resourceDisplayName, // Display name of the resource app
       app_role_id: assignment.appRoleId, // ID of the app role being assigned
+      app_role_name: appRoleNameMap?.get(`${assignment.resourceId}_${assignment.appRoleId}`) ||
+                     appRoleNameMap?.get(assignment.appRoleId) || null, // Resolved app role name for easy reference
     },
   };
 }
@@ -528,41 +530,52 @@ export function normalizeAppRoleAssignment(assignment: EntraAppRoleAssignment): 
  */
 export function normalizeAuthenticationMethod(
   method: EntraAuthenticationMethod,
-  userId: string
+  userId: string,
+  userDisplayName?: string
 ): NormalizedItem {
-  // Extract method type from @odata.type field and convert to lowercase
-  // Example: "microsoft.graph.phoneAuthenticationMethod" → "phoneauthenticationmethod"
-  const methodType = (method['@odata.type']?.split('.').pop() || 'unknown').toLowerCase();
+  // Extract method type from @odata.type field (keep camelCase for enum matching)
+  // Example: "microsoft.graph.phoneAuthenticationMethod" → "phoneAuthenticationMethod"
+  const methodType = method['@odata.type']?.split('.').pop() || 'unknown';
 
   // Generate user-friendly title based on method type
   // This provides better readability in DevRev UI when display_name is empty
   const generateTitle = (): string => {
+    // Map method types to human-readable titles (using camelCase keys)
+    const methodTypeTitles: Record<string, string> = {
+      phoneAuthenticationMethod: 'Phone Authentication',
+      microsoftAuthenticatorAuthenticationMethod: 'Microsoft Authenticator',
+      emailAuthenticationMethod: 'Email Authentication',
+      fido2AuthenticationMethod: 'FIDO2 Security Key',
+      windowsHelloForBusinessAuthenticationMethod: 'Windows Hello',
+      passwordAuthenticationMethod: 'Password',
+      softwareOathAuthenticationMethod: 'Authenticator App (OATH)',
+      temporaryAccessPassAuthenticationMethod: 'Temporary Access Pass',
+    };
+
+    const baseMethodName = methodTypeTitles[methodType] ||
+      `${methodType.replace('AuthenticationMethod', '')} Authentication`;
+
+    // If we have displayName from the method, use it
     if (method.displayName) {
       return method.displayName;
     }
 
-    // Map method types to human-readable titles
-    const methodTypeTitles: Record<string, string> = {
-      phoneauthenticationmethod: 'Phone Authentication',
-      microsoftauthenticatorauthenticationmethod: 'Microsoft Authenticator',
-      emailauthenticationmethod: 'Email Authentication',
-      fido2authenticationmethod: 'FIDO2 Security Key',
-      windowshelloforbusinessauthenticationmethod: 'Windows Hello',
-      passwordauthenticationmethod: 'Password Authentication',
-      softwareoathauthenticationmethod: 'Authenticator App (OATH)',
-      temporaryaccesspassauthenticationmethod: 'Temporary Access Pass',
-    };
+    // Add phone number to title for phone methods
+    if (method.phoneNumber) {
+      return `${baseMethodName} (${method.phoneNumber})`;
+    }
 
-    // Return mapped title or generate default from method type
-    return (
-      methodTypeTitles[methodType] ||
-      `${methodType.replace('authenticationmethod', '')} Authentication`.replace(/^\w/, (c) =>
-        c.toUpperCase()
-      )
-    );
+    // Add user display name if available for better context
+    if (userDisplayName) {
+      return `${baseMethodName} - ${userDisplayName}`;
+    }
+
+    // Return base method name
+    return baseMethodName;
   };
 
-  const title = generateTitle();
+  // Use generateTitle() as the display_name - this is what DevRev will show as the entity title
+  const displayName = generateTitle();
 
   return {
     // Composite ID: "userId_methodId" ensures uniqueness (underscore separator)
@@ -571,10 +584,10 @@ export function normalizeAuthenticationMethod(
     modified_date: method.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
     data: {
       user_id: userId, // ID of the user who owns this method
+      user_display_name: userDisplayName ?? null, // Display name of the user who owns this method
       method_id: method.id, // Unique method ID
-      method_type: methodType, // Type of authentication method (lowercase)
-      title, // Generated user-friendly title for DevRev UI
-      display_name: method.displayName ?? null, // Display name (if applicable)
+      method_type: methodType, // Type of authentication method (camelCase to match EDM enum)
+      display_name: displayName, // Human-readable title shown in DevRev UI
       device_tag: method.deviceTag ?? null, // Device tag (for authenticator apps)
       phone_app_version: method.phoneAppVersion ?? null, // Authenticator app version
       phone_number: method.phoneNumber ?? null, // Phone number (for SMS/call methods)
@@ -666,10 +679,14 @@ export function normalizeAuthenticationMethodsPolicy(
     modified_date: FALLBACK_DATE,
     data: {
       display_name: policy.displayName, // Policy display name
-      // Registration enforcement object (for nested structure access)
-      registration_enforcement: policy.registrationEnforcement ?? null,
-      // Authentication method configurations array
-      authentication_method_configurations: policy.authenticationMethodConfigurations ?? [],
+      // Registration enforcement object (stringified as rich_text for DevRev EDM)
+      registration_enforcement: policy.registrationEnforcement
+        ? JSON.stringify(policy.registrationEnforcement, null, 2)
+        : null,
+      // Authentication method configurations array (stringified as rich_text for DevRev EDM)
+      authentication_method_configurations: policy.authenticationMethodConfigurations
+        ? JSON.stringify(policy.authenticationMethodConfigurations, null, 2)
+        : null,
       // Registration enforcement campaign fields (flattened for easy querying)
       registration_campaign_state: campaignState, // Campaign enabled/disabled
       registration_snooze_days: snoozeDays, // Days users can snooze prompt
@@ -1201,6 +1218,15 @@ export function normalizeDirectoryAudit(audit: EntraDirectoryAudit): NormalizedI
   // Invitation ID for B2B guest invitations
   const invitationId = additionalDetailsMap['InvitationId'] || null;
 
+  // Serialize target resources to JSON string for schema compatibility
+  // The array structure may not be accepted by domain metadata validators
+  const targetResourcesJson = audit.targetResources && audit.targetResources.length > 0
+    ? JSON.stringify(audit.targetResources)
+    : null;
+
+  // Count of target resources affected by this audit event
+  const targetResourcesCount = audit.targetResources?.length ?? 0;
+
   return {
     id: audit.id, // Unique audit log ID (GUID)
     created_date: audit.activityDateTime, // When the activity occurred (ISO 8601)
@@ -1216,9 +1242,10 @@ export function normalizeDirectoryAudit(audit: EntraDirectoryAudit): NormalizedI
       initiated_by_user_display_name: audit.initiatedBy?.user?.displayName ?? null, // User display name
       initiated_by_app_id: audit.initiatedBy?.app?.appId ?? null, // App ID if initiated by application
       initiated_by_app_display_name: audit.initiatedBy?.app?.displayName ?? null, // App display name
-      initiated_by_display_name: initiatedByDisplayName, // Display name of initiator (legacy field)
-      // Target resources array (for nested structure access)
-      target_resources: audit.targetResources ?? [],
+      initiated_by_display_name: initiatedByDisplayName, // Display name of initiator (combined field)
+      // Target resources (serialized to JSON for schema compatibility)
+      target_resources_json: targetResourcesJson, // JSON string of all target resources
+      target_resources_count: targetResourcesCount, // Number of target resources
       // Target resource fields (extracted from first target for easy querying)
       target_object_id: targetObjectId, // ID of affected object
       target_display_name: targetDisplayName, // Display name of affected object

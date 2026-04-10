@@ -69,6 +69,11 @@
           "type": "text",
           "is_indexed": true
         },
+        "display_name": {
+          "name": "Display Name",
+          "type": "text",
+          "is_indexed": true
+        },
         "description": {
           "name": "Description",
           "type": "text"
@@ -293,6 +298,15 @@
     "app_role_assignments": {
       "name": "App Role Assignments",
       "fields": {
+        "display_name": {
+          "name": "Display Name",
+          "type": "text",
+          "is_indexed": true
+        },
+        "app_role_name": {
+          "name": "App Role Name",
+          "type": "text"
+        },
         "principal_id": {
           "name": "Principal ID",
           "type": "text",
@@ -367,6 +381,10 @@
         },
         "display_name": {
           "name": "Device/Method Name",
+          "type": "text"
+        },
+        "user_display_name": {
+          "name": "User Display Name",
           "type": "text"
         },
         "device_tag": {
@@ -446,6 +464,14 @@
         "total_auth_method_configurations": {
           "name": "Total Method Configurations",
           "type": "int"
+        },
+        "registration_enforcement": {
+          "name": "Registration Enforcement",
+          "type": "text"
+        },
+        "authentication_method_configurations": {
+          "name": "Method Configurations",
+          "type": "text"
         }
       }
     },
@@ -773,6 +799,14 @@
           "name": "Initiated By App ID",
           "type": "text"
         },
+        "initiated_by_user_display_name": {
+          "name": "Initiated By User Name",
+          "type": "text"
+        },
+        "initiated_by_app_display_name": {
+          "name": "Initiated By App Name",
+          "type": "text"
+        },
         "target_object_id": {
           "name": "Target Object ID",
           "type": "text",
@@ -821,6 +855,14 @@
         "invitation_id": {
           "name": "Invitation ID",
           "type": "text"
+        },
+        "target_resources_json": {
+          "name": "Target Resources (JSON)",
+          "type": "text"
+        },
+        "target_resources_count": {
+          "name": "Target Resources Count",
+          "type": "int"
         }
       }
     },

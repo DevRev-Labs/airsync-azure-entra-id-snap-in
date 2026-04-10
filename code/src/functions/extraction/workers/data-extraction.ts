@@ -1014,6 +1014,9 @@ processTask({
       // Required Permission: Application.Read.All
       // ═══════════════════════════════════════════════════════════════════════
 
+      // Build app role name map for app role assignments
+      const appRoleNameMap: Map<string, string> = new Map();
+
       if (!adapter.state.appRoles.completed) {
         try {
           const spIds = adapter.state.servicePrincipals.ids;
@@ -1029,6 +1032,15 @@ processTask({
               if (normalized.length > 0) {
                 await adapter.getRepo(ENTITY_NAMES.APP_ROLES)?.push(normalized);
                 adapter.state.appRoles.extractedCount += normalized.length;
+
+                // Build lookup map: "resourceId_appRoleId" → "roleName"
+                // Also store by appRoleId alone as a fallback
+                for (const role of appRoles) {
+                  const key = `${spId}_${role.id}`;
+                  const roleName = role.displayName || role.value || 'Unknown Role';
+                  appRoleNameMap.set(key, roleName);
+                  appRoleNameMap.set(role.id, roleName); // Fallback lookup by ID alone
+                }
               }
             } catch (spError) {
               // Non-fatal: skip this SP and continue
@@ -1086,7 +1098,8 @@ processTask({
 
               try {
                 const page = await client.listAppRoleAssignments(spId, innerNextLink);
-                const normalized = page.value.map((a) => normalizeAppRoleAssignment(a));
+                // Pass app role name map to generate better titles
+                const normalized = page.value.map((a) => normalizeAppRoleAssignment(a, appRoleNameMap));
                 await adapter.getRepo(ENTITY_NAMES.APP_ROLE_ASSIGNMENTS)?.push(normalized);
                 adapter.state.appRoleAssignments.extractedCount += normalized.length;
                 innerNextLink = page['@odata.nextLink'];
@@ -1145,7 +1158,8 @@ processTask({
             const userId = userIds[currentIndex];
             try {
               const page = await client.listAuthenticationMethods(userId);
-              const normalized = page.value.map((m) => normalizeAuthenticationMethod(m, userId));
+              // Pass undefined for userDisplayName - the normalization function will generate a good title without it
+              const normalized = page.value.map((m) => normalizeAuthenticationMethod(m, userId, undefined));
               if (normalized.length > 0) {
                 await adapter.getRepo(ENTITY_NAMES.AUTHENTICATION_METHODS)?.push(normalized);
                 adapter.state.authenticationMethods.extractedCount += normalized.length;

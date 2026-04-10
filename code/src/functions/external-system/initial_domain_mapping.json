@@ -232,6 +232,29 @@
                   "use_primary_input": true
                 }
               },
+              "display_name": {
+                "field_descriptor": {
+                  "data_name": "display_name",
+                  "db_name": "display_name",
+                  "field_type": "text",
+                  "name": "display_name",
+                  "ui": {
+                    "display_name": "Display Name"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "display_name",
+                    "db_name": "display_name",
+                    "field_type": "text",
+                    "name": "display_name"
+                  },
+                  "forward_jq": ".display_name",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
               "description": {
                 "field_descriptor": {
                   "data_name": "description",
@@ -1482,6 +1505,52 @@
                   "transformation_method": "use_raw_jq",
                   "use_primary_input": true
                 }
+              },
+              "display_name": {
+                "field_descriptor": {
+                  "data_name": "display_name",
+                  "db_name": "display_name",
+                  "field_type": "text",
+                  "name": "display_name",
+                  "ui": {
+                    "display_name": "Display Name"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "display_name",
+                    "db_name": "display_name",
+                    "field_type": "text",
+                    "name": "display_name"
+                  },
+                  "forward_jq": ".display_name",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "app_role_name": {
+                "field_descriptor": {
+                  "data_name": "app_role_name",
+                  "db_name": "app_role_name",
+                  "field_type": "text",
+                  "name": "app_role_name",
+                  "ui": {
+                    "display_name": "App Role Name"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "app_role_name",
+                    "db_name": "app_role_name",
+                    "field_type": "text",
+                    "name": "app_role_name"
+                  },
+                  "forward_jq": ".app_role_name",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
               }
             },
             "devrev_leaf_type": {
@@ -1492,7 +1561,7 @@
             "stock_field_mappings": {
               "title": {
                 "forward": true,
-                "primary_external_field": "principal_display_name",
+                "primary_external_field": "display_name",
                 "reverse": false,
                 "transformation_method_for_set": {
                   "transformation_method": "use_directly"
@@ -1657,6 +1726,29 @@
                   "use_primary_input": true
                 }
               },
+              "user_display_name": {
+                "field_descriptor": {
+                  "data_name": "user_display_name",
+                  "db_name": "user_display_name",
+                  "field_type": "text",
+                  "name": "user_display_name",
+                  "ui": {
+                    "display_name": "User Display Name"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "user_display_name",
+                    "db_name": "user_display_name",
+                    "field_type": "text",
+                    "name": "user_display_name"
+                  },
+                  "forward_jq": ".user_display_name",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
               "device_tag": {
                 "field_descriptor": {
                   "data_name": "device_tag",
@@ -1768,7 +1860,7 @@
             "stock_field_mappings": {
               "title": {
                 "forward": true,
-                "primary_external_field": "method_type",
+                "primary_external_field": "display_name",
                 "reverse": false,
                 "transformation_method_for_set": {
                   "transformation_method": "use_directly"
@@ -2907,25 +2999,94 @@
                   "use_primary_input": true
                 }
               },
-              "target_resources": {
+              "initiated_by_user_display_name": {
                 "field_descriptor": {
-                  "data_name": "target_resources",
-                  "db_name": "target_resources",
-                  "field_type": "rich_text",
-                  "name": "target_resources",
+                  "data_name": "initiated_by_user_display_name",
+                  "db_name": "initiated_by_user_display_name",
+                  "field_type": "text",
+                  "name": "initiated_by_user_display_name",
                   "ui": {
-                    "display_name": "Target Resources"
+                    "display_name": "Initiated By User Name"
                   }
                 },
                 "transformation_method": {
                   "can_apply_to_null": true,
                   "custom_field_type": {
-                    "data_name": "target_resources",
-                    "db_name": "target_resources",
-                    "field_type": "rich_text",
-                    "name": "target_resources"
+                    "data_name": "initiated_by_user_display_name",
+                    "db_name": "initiated_by_user_display_name",
+                    "field_type": "text",
+                    "name": "initiated_by_user_display_name"
                   },
-                  "forward_jq": ".target_resources",
+                  "forward_jq": ".initiated_by_user_display_name",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "initiated_by_app_display_name": {
+                "field_descriptor": {
+                  "data_name": "initiated_by_app_display_name",
+                  "db_name": "initiated_by_app_display_name",
+                  "field_type": "text",
+                  "name": "initiated_by_app_display_name",
+                  "ui": {
+                    "display_name": "Initiated By App Name"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "initiated_by_app_display_name",
+                    "db_name": "initiated_by_app_display_name",
+                    "field_type": "text",
+                    "name": "initiated_by_app_display_name"
+                  },
+                  "forward_jq": ".initiated_by_app_display_name",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "target_resources_json": {
+                "field_descriptor": {
+                  "data_name": "target_resources_json",
+                  "db_name": "target_resources_json",
+                  "field_type": "text",
+                  "name": "target_resources_json",
+                  "ui": {
+                    "display_name": "Target Resources (JSON)"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "target_resources_json",
+                    "db_name": "target_resources_json",
+                    "field_type": "text",
+                    "name": "target_resources_json"
+                  },
+                  "forward_jq": ".target_resources_json",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "target_resources_count": {
+                "field_descriptor": {
+                  "data_name": "target_resources_count",
+                  "db_name": "target_resources_count",
+                  "field_type": "int",
+                  "name": "target_resources_count",
+                  "ui": {
+                    "display_name": "Target Resources Count"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "target_resources_count",
+                    "db_name": "target_resources_count",
+                    "field_type": "int",
+                    "name": "target_resources_count"
+                  },
+                  "forward_jq": ".target_resources_count",
                   "transformation_method": "use_raw_jq",
                   "use_primary_input": true
                 }
