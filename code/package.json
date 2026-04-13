@@ -19,7 +19,7 @@
   "dependencies": {
     "@devrev/ts-adaas": "^1.18.0",
     "@devrev/typescript-sdk": "^1.0.0",
-    "axios": "^1.14.0"
+    "axios": "^1.15.0"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",
