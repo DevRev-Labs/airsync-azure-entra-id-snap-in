@@ -235,43 +235,42 @@ processTask({
       if (isIncremental && adapter.event.payload.event_type === EventType.StartExtractingData) {
         console.log('[data-extraction] Incremental sync: resetting entity completion flags while preserving delta links');
 
-        // Save critical data from previous sync
-        // Delta links are tokens that allow us to fetch only changes
-        const prevDeltaLinks = adapter.state.deltaLinks;
-
-        // Last successful sync timestamp helps with audit log time-windowing
-        const prevLastSuccessfulSync = adapter.state.lastSuccessfulSyncStarted;
-
-        // Last audit/sign-in log sync timestamps for time-windowed queries
-        const prevAuditLogSync = adapter.state.lastAuditLogSync;
-        const prevSignInLogSync = adapter.state.lastSignInLogSync;
-
-        // Reset state to initial but preserve delta links and timestamps
-        // This allows us to:
-        // - Re-extract all entities using delta queries (only changed items)
-        // - Continue audit log queries from last sync time
-        // - Track the new sync's progress independently
-        adapter.state = {
-          ...getInitialState(), // Fresh state with all entities marked incomplete
-          deltaLinks: prevDeltaLinks, // Preserve delta query tokens
-          lastSuccessfulSyncStarted: prevLastSuccessfulSync, // Preserve last sync timestamp
-          lastAuditLogSync: prevAuditLogSync, // Preserve last audit log sync time
-          lastSignInLogSync: prevSignInLogSync, // Preserve last sign-in log sync time
-        };
+        // Reset only the connector entity completion flags by mutating
+        // adapter.state in place. Do NOT replace adapter.state with a new
+        // object — that would drop SDK-managed fields (workersNewest,
+        // workersOldest, pendingWorkersNewest, pendingWorkersOldest, etc.)
+        // which the SDK uses to resolve WORKERS_NEWEST / WORKERS_OLDEST
+        // TimeValues on the next incremental sync.
+        const fresh = getInitialState();
+        adapter.state.users = fresh.users;
+        adapter.state.groups = fresh.groups;
+        adapter.state.groupMembers = fresh.groupMembers;
+        adapter.state.directoryRoles = fresh.directoryRoles;
+        adapter.state.roleMembers = fresh.roleMembers;
+        adapter.state.applications = fresh.applications;
+        adapter.state.servicePrincipals = fresh.servicePrincipals;
+        adapter.state.devices = fresh.devices;
+        adapter.state.orgContacts = fresh.orgContacts;
+        adapter.state.appRoles = fresh.appRoles;
+        adapter.state.appRoleAssignments = fresh.appRoleAssignments;
+        adapter.state.authenticationMethods = fresh.authenticationMethods;
+        adapter.state.authenticationMethodsPolicy = fresh.authenticationMethodsPolicy;
+        adapter.state.licenseAssignments = fresh.licenseAssignments;
+        adapter.state.pimEligibleRoles = fresh.pimEligibleRoles;
+        adapter.state.conditionalAccessPolicies = fresh.conditionalAccessPolicies;
+        adapter.state.lifecycleWorkflows = fresh.lifecycleWorkflows;
+        adapter.state.directoryAuditLogs = fresh.directoryAuditLogs;
+        adapter.state.signInLogs = fresh.signInLogs;
+        // deltaLinks, lastAuditLogSync, lastSignInLogSync are preserved by not
+        // touching them. lastSuccessfulSyncStarted is managed by the SDK.
       }
 
       // ─────────────────────────────────────────────────────────────────────────
-      // STEP 5: RECORD SYNC START TIMESTAMP
+      // STEP 5: SYNC START TIMESTAMP
       // ─────────────────────────────────────────────────────────────────────────
-      // Record when this sync started (only on the very first invocation)
-      // This timestamp is used for:
-      // - Audit log time-windowing (fetch logs since last sync)
-      // - Tracking sync duration
-      // - Debugging and monitoring
-
-      if (!adapter.state.lastSyncStarted) {
-        adapter.state.lastSyncStarted = new Date().toISOString();
-      }
+      // The ADaaS SDK sets lastSyncStarted automatically on StartExtractingData
+      // and commits lastSuccessfulSyncStarted on AttachmentExtractionDone, so
+      // the connector does not need to manage these fields itself.
 
       // ─────────────────────────────────────────────────────────────────────────
       // STEP 6: INITIALIZE DATA REPOSITORIES
@@ -1589,14 +1588,12 @@ processTask({
       // ─────────────────────────────────────────────────────────────────────
       // Persist Successful Sync Timestamp
       // ─────────────────────────────────────────────────────────────────────
-      // Save the start timestamp of this successful sync
-      // This will be used as the baseline for the next incremental sync
-      // Also used for audit log time-windowing
-
-      adapter.state.lastSuccessfulSyncStarted = adapter.state.lastSyncStarted;
-
-      // Clear current sync timestamp (will be set again on next sync)
-      adapter.state.lastSyncStarted = undefined;
+      // NOTE: Do NOT manage lastSyncStarted / lastSuccessfulSyncStarted here.
+      // The ADaaS SDK commits lastSuccessfulSyncStarted = lastSyncStarted
+      // automatically on AttachmentExtractionDone, and also commits the
+      // extraction boundaries (workersNewest / workersOldest) at that point.
+      // Touching these fields manually breaks the WORKERS_NEWEST resolution
+      // for the next incremental sync.
 
       // ─────────────────────────────────────────────────────────────────────
       // Emit Completion Event
