@@ -51,9 +51,10 @@ export interface State {
     orgContacts?: string;
   };
 
-  // Incremental sync timestamps
-  lastSyncStarted?: string;
-  lastSuccessfulSyncStarted?: string;
+  // Connector-owned time-window cursors for endpoints that don't support
+  // delta queries (audit logs, sign-in logs). lastSyncStarted and
+  // lastSuccessfulSyncStarted are SDK-managed (see @devrev/ts-adaas SdkState)
+  // and must not be redeclared or written to here.
   lastAuditLogSync?: string;
   lastSignInLogSync?: string;
 }

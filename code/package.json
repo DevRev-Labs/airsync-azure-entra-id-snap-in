@@ -19,10 +19,11 @@
   "dependencies": {
     "@devrev/ts-adaas": "^1.18.0",
     "@devrev/typescript-sdk": "^1.0.0",
-    "axios": "^1.15.2"
+    "axios": "^1.16.0"
   },
   "overrides": {
-    "protobufjs": "^7.5.8"
+    "protobufjs": "^7.5.8",
+    "axios": "^1.16.0"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",
