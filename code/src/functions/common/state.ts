@@ -17,6 +17,15 @@ export interface NestedEntityState {
   skipped?: boolean;
 }
 
+// Devices are enriched with per-device Graph calls (owner + details), so we
+// need a resume cursor inside the current page in addition to the outer
+// nextLink. currentDeviceIndex tracks how many devices in the current page
+// have already been enriched, so a timeout mid-page doesn't restart the
+// enrichment from device 0 on the next invocation.
+export interface DevicesState extends EntityState {
+  currentDeviceIndex?: number;
+}
+
 export interface State {
   users: EntityStateWithIds;
   groups: EntityStateWithIds;
@@ -25,7 +34,7 @@ export interface State {
   roleMembers: NestedEntityState;
   applications: EntityState;
   servicePrincipals: EntityStateWithIds;
-  devices: EntityState;
+  devices: DevicesState;
   orgContacts: EntityState;
 
   // NEW ENTITIES

@@ -118,7 +118,13 @@
 import { EventType, ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
 
 // Import state management types and initializer
-import { ADAPTER_TIMEOUT_DELAY_MS, ENTITY_NAMES, DEFAULT_RATE_LIMIT_DELAY_SECONDS } from '../../common/constants';
+import {
+  ADAPTER_TIMEOUT_DELAY_MS,
+  AUTH_ERROR_DELAY_SECONDS,
+  DEFAULT_RATE_LIMIT_DELAY_SECONDS,
+  ENTITY_NAMES,
+  INITIAL_LOG_WINDOW_MS,
+} from '../../common/constants';
 import { validateConnectionData } from '../../common/security';
 import { getInitialState, State } from '../../common/state';
 // Import Microsoft Graph API client and authentication
@@ -149,18 +155,32 @@ import {
   normalizePIMEligibleRole,
   normalizeConditionalAccessPolicy,
   normalizeLifecycleWorkflow,
-  normalizeDirectoryAudit,
-  normalizeSignIn,
+  normalizeDirectoryAuditLog,
+  normalizeSignInLog,
 } from '../../external-system/data-normalization';
-import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
+import { acquireAccessToken, EntraIDClient } from '../../external-system/entra-id-api';
 
-// Import all normalization functions for transforming raw API data
-
-// Import configuration constants
-
-// Import utility functions for error handling and delays
-
-// Import security validation functions
+// Process-level crash instrumentation (LABS-377).
+// The SDK emits "Worker exited without emitting event" whenever the Node
+// process dies before any ExtractorEventType is emitted. That happens on
+// uncaught exceptions and unhandled promise rejections, both of which
+// bypass the try/catch below. Without these handlers, CloudWatch shows
+// only the SDK's generic exit message with no stack trace, making the
+// crash impossible to diagnose. Register once at module load.
+process.on('uncaughtException', (err: Error) => {
+  console.error(
+    `[data-extraction] UNCAUGHT_EXCEPTION: ${err?.stack || err?.message || String(err)}`
+  );
+});
+process.on('unhandledRejection', (reason: unknown) => {
+  const detail =
+    reason instanceof Error
+      ? reason.stack || reason.message
+      : typeof reason === 'string'
+        ? reason
+        : JSON.stringify(reason);
+  console.error(`[data-extraction] UNHANDLED_REJECTION: ${detail}`);
+});
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -460,7 +480,7 @@ processTask({
             console.warn('[data-extraction] Auth error on users — requesting delay');
 
             // Request 60-second delay for token refresh
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
 
             // Exit - worker will re-authenticate on next invocation
             return;
@@ -554,7 +574,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isDeltaExpiredError(error)) {
@@ -621,7 +641,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -682,7 +702,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isDeltaExpiredError(error)) {
@@ -760,7 +780,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isDeltaExpiredError(error)) {
@@ -827,7 +847,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isDeltaExpiredError(error)) {
@@ -872,10 +892,25 @@ processTask({
 
             const activeItems = page.value.filter((d) => !d['@removed']);
 
-            // NEW: Fetch owner and detailed information for each device
-            for (const device of activeItems) {
+            // Enrich each device with owner + details via two extra Graph
+            // calls. This is the LABS-377 hotspot: for a large tenant this
+            // loop can issue ~2N sequential requests per page and blow past
+            // the 10-min soft timeout. We check isTimeout INSIDE the loop
+            // and resume from currentDeviceIndex on the next invocation
+            // instead of re-enriching from device 0.
+            let deviceIdx = adapter.state.devices.currentDeviceIndex ?? 0;
+            let ownerFailures = 0;
+            let detailFailures = 0;
+            while (deviceIdx < activeItems.length) {
+              if (adapter.isTimeout) {
+                adapter.state.devices.currentDeviceIndex = deviceIdx;
+                adapter.state.devices.nextLink = nextLink; // re-fetch this same page on resume
+                await wait(ADAPTER_TIMEOUT_DELAY_MS);
+                return;
+              }
+
+              const device = activeItems[deviceIdx];
               try {
-                // Get registered owner
                 const ownersPage = await client.listDeviceRegisteredOwners(device.id);
                 if (ownersPage.value.length > 0) {
                   const owner = ownersPage.value[0];
@@ -884,26 +919,34 @@ processTask({
                   device.registeredOwnerDisplayName = owner.displayName;
                 }
               } catch (ownerError) {
-                // Non-fatal: continue without owner info
-                console.log(`[data-extraction] Could not fetch owner for device ${device.id}`);
+                ownerFailures++;
               }
 
               try {
-                // Get additional device details (manufacturer, model, profileType)
                 const details = await client.getDeviceDetails(device.id);
                 device.manufacturer = details.manufacturer;
                 device.model = details.model;
                 device.profileType = details.profileType;
               } catch (detailsError) {
-                // Non-fatal: continue without additional details
-                console.log(`[data-extraction] Could not fetch details for device ${device.id}`);
+                detailFailures++;
               }
+
+              deviceIdx++;
+            }
+
+            if (ownerFailures > 0 || detailFailures > 0) {
+              console.warn(
+                `[data-extraction] Device enrichment failures on page: owners=${ownerFailures}, details=${detailFailures} of ${activeItems.length}`
+              );
             }
 
             const normalized = activeItems.map((d) => normalizeDevice(d));
             await adapter.getRepo(ENTITY_NAMES.DEVICES)?.push(normalized);
 
             adapter.state.devices.extractedCount += normalized.length;
+            // Page fully enriched — reset the per-page cursor before
+            // advancing to the next page's nextLink.
+            adapter.state.devices.currentDeviceIndex = 0;
             nextLink = page['@odata.nextLink'];
             adapter.state.devices.nextLink = nextLink;
           } while (nextLink);
@@ -913,6 +956,7 @@ processTask({
           }
           adapter.state.devices.completed = true;
           adapter.state.devices.nextLink = undefined;
+          adapter.state.devices.currentDeviceIndex = 0;
           console.log(`[data-extraction] Devices extracted: ${adapter.state.devices.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
@@ -921,13 +965,14 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isDeltaExpiredError(error)) {
             adapter.state.deltaLinks.devices = undefined;
             adapter.state.devices.completed = false;
             adapter.state.devices.nextLink = undefined;
+            adapter.state.devices.currentDeviceIndex = 0;
             return;
           }
           if (isForbiddenError(error)) {
@@ -985,7 +1030,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isDeltaExpiredError(error)) {
@@ -1020,6 +1065,7 @@ processTask({
         try {
           const spIds = adapter.state.servicePrincipals.ids;
           let currentIndex = adapter.state.appRoles.currentParentIndex;
+          let spFailures = 0;
 
           while (currentIndex < spIds.length) {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
@@ -1043,7 +1089,7 @@ processTask({
               }
             } catch (spError) {
               // Non-fatal: skip this SP and continue
-              console.log(`[data-extraction] Could not fetch app roles for SP ${spId}`);
+              spFailures++;
             }
 
             currentIndex++;
@@ -1051,6 +1097,9 @@ processTask({
           }
 
           adapter.state.appRoles.completed = true;
+          if (spFailures > 0) {
+            console.warn(`[data-extraction] App roles: ${spFailures}/${spIds.length} service principals failed`);
+          }
           console.log(`[data-extraction] App roles extracted: ${adapter.state.appRoles.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
@@ -1059,7 +1108,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -1085,6 +1134,7 @@ processTask({
         try {
           const spIds = adapter.state.servicePrincipals.ids;
           let currentIndex = adapter.state.appRoleAssignments.currentParentIndex;
+          let spFailures = 0;
 
           while (currentIndex < spIds.length) {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
@@ -1105,7 +1155,7 @@ processTask({
                 adapter.state.appRoleAssignments.currentParentNextLink = innerNextLink;
               } catch (spError) {
                 // Non-fatal: skip this SP and continue
-                console.log(`[data-extraction] Could not fetch app role assignments for SP ${spId}`);
+                spFailures++;
                 break;
               }
             } while (innerNextLink);
@@ -1116,6 +1166,9 @@ processTask({
           }
 
           adapter.state.appRoleAssignments.completed = true;
+          if (spFailures > 0) {
+            console.warn(`[data-extraction] App role assignments: ${spFailures}/${spIds.length} service principals failed`);
+          }
           console.log(`[data-extraction] App role assignments extracted: ${adapter.state.appRoleAssignments.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
@@ -1124,7 +1177,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -1150,6 +1203,7 @@ processTask({
         try {
           const userIds = adapter.state.users.ids;
           let currentIndex = adapter.state.authenticationMethods.currentParentIndex;
+          let userFailures = 0;
 
           while (currentIndex < userIds.length) {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
@@ -1165,7 +1219,7 @@ processTask({
               }
             } catch (userError) {
               // Non-fatal: skip this user and continue
-              console.log(`[data-extraction] Could not fetch auth methods for user ${userId}`);
+              userFailures++;
             }
 
             currentIndex++;
@@ -1173,6 +1227,9 @@ processTask({
           }
 
           adapter.state.authenticationMethods.completed = true;
+          if (userFailures > 0) {
+            console.warn(`[data-extraction] Authentication methods: ${userFailures}/${userIds.length} users failed`);
+          }
           console.log(`[data-extraction] Authentication methods extracted: ${adapter.state.authenticationMethods.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
@@ -1181,7 +1238,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -1218,7 +1275,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -1244,6 +1301,7 @@ processTask({
         try {
           const userIds = adapter.state.users.ids;
           let currentIndex = adapter.state.licenseAssignments.currentParentIndex;
+          let userFailures = 0;
 
           while (currentIndex < userIds.length) {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
@@ -1258,7 +1316,7 @@ processTask({
               }
             } catch (userError) {
               // Non-fatal: skip this user and continue
-              console.log(`[data-extraction] Could not fetch licenses for user ${userId}`);
+              userFailures++;
             }
 
             currentIndex++;
@@ -1266,6 +1324,9 @@ processTask({
           }
 
           adapter.state.licenseAssignments.completed = true;
+          if (userFailures > 0) {
+            console.warn(`[data-extraction] License assignments: ${userFailures}/${userIds.length} users failed`);
+          }
           console.log(`[data-extraction] License assignments extracted: ${adapter.state.licenseAssignments.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
@@ -1274,7 +1335,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -1325,7 +1386,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -1379,7 +1440,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -1434,7 +1495,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -1462,8 +1523,10 @@ processTask({
 
       if (!adapter.state.directoryAuditLogs.completed) {
         try {
-          // Fetch audit logs from last 7 days
-          const startDateTime = adapter.state.lastAuditLogSync || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+          // On first sync the cursor is unset — use a bounded 24h window to
+          // avoid pulling millions of rows and blowing the Lambda memory
+          // budget (LABS-377). Subsequent syncs resume from lastAuditLogSync.
+          const startDateTime = adapter.state.lastAuditLogSync || new Date(Date.now() - INITIAL_LOG_WINDOW_MS).toISOString();
           let nextLink = adapter.state.directoryAuditLogs.nextLink;
           let page;
           do {
@@ -1473,7 +1536,7 @@ processTask({
 
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-            const normalized = page.value.map((a) => normalizeDirectoryAudit(a));
+            const normalized = page.value.map((a) => normalizeDirectoryAuditLog(a));
             await adapter.getRepo(ENTITY_NAMES.DIRECTORY_AUDIT_LOGS)?.push(normalized);
 
             adapter.state.directoryAuditLogs.extractedCount += normalized.length;
@@ -1492,7 +1555,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {
@@ -1520,8 +1583,10 @@ processTask({
 
       if (!adapter.state.signInLogs.completed) {
         try {
-          // Fetch sign-in logs from last 7 days
-          const startDateTime = adapter.state.lastSignInLogSync || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+          // Bounded initial window (see LABS-377). Sign-in logs are especially
+          // heavy — a large tenant can emit millions of rows/day with nested
+          // deviceDetail/applicationDetail/authenticationDetails payloads.
+          const startDateTime = adapter.state.lastSignInLogSync || new Date(Date.now() - INITIAL_LOG_WINDOW_MS).toISOString();
           let nextLink = adapter.state.signInLogs.nextLink;
           let page;
           do {
@@ -1531,7 +1596,7 @@ processTask({
 
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-            const normalized = page.value.map((s) => normalizeSignIn(s));
+            const normalized = page.value.map((s) => normalizeSignInLog(s));
             await adapter.getRepo(ENTITY_NAMES.SIGN_IN_LOGS)?.push(normalized);
 
             adapter.state.signInLogs.extractedCount += normalized.length;
@@ -1550,7 +1615,7 @@ processTask({
             return;
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: 60 });
+            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
             return;
           }
           if (isForbiddenError(error)) {

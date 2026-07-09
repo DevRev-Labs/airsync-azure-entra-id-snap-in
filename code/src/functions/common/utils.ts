@@ -58,26 +58,32 @@ export const wait = (ms: number): Promise<void> => {
  * }
  */
 export function formatError(error: unknown): string {
-  // Check if error is an Axios HTTP error
+  // Axios HTTP error — include status, statusText, response body, and stack.
+  // The response body is the useful part for Graph API failures (contains the
+  // Microsoft error code like "InvalidAuthenticationToken" or "syncStateNotFound"),
+  // which the previous formatter silently dropped. Stack trace is included so
+  // the top-level catch block writes something diagnosable to CloudWatch
+  // rather than just "HTTP unknown: <message>" (LABS-377).
   if (axios.isAxiosError(error)) {
-    // Extract HTTP status code from response (or 'unknown' if not available)
     const status = error.response?.status ?? 'unknown';
-
-    // Extract status text from response (or use error message as fallback)
-    // Prefer statusText, but if empty, use error message
     const statusText = error.response?.statusText || error.message;
-
-    // Return formatted string with status code and message
-    return `HTTP ${status}: ${statusText}`;
+    const body = error.response?.data;
+    const bodyStr =
+      body === undefined
+        ? ''
+        : ` | body: ${typeof body === 'string' ? body : JSON.stringify(body).slice(0, 500)}`;
+    const stack = error.stack ? ` | stack: ${error.stack}` : '';
+    return `HTTP ${status}: ${statusText}${bodyStr}${stack}`;
   }
 
-  // Check if error is a standard Error object
+  // Standard Error — include the stack, not just the message. Uncaught
+  // exceptions inside the extraction task have historically bubbled to the
+  // top-level catch with no stack, defeating diagnosis.
   if (error instanceof Error) {
-    // Return the error message property
-    return error.message;
+    return error.stack || error.message;
   }
 
-  // For all other types, convert to string
+  // Anything else — stringify.
   return String(error);
 }
 

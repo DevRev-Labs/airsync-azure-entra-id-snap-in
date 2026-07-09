@@ -9,6 +9,8 @@
  */
 
 import axios from 'axios';
+
+import { DEFAULT_LABS_USAGE_TIMEOUT_MS } from './constants';
 import { formatError } from './utils';
 
 /**
@@ -21,7 +23,7 @@ interface LabsUsageConfig {
   solutionName: string;
   /** Solution version to report in usage events */
   version: string;
-  /** Timeout for HTTP requests in milliseconds (default: 5000) */
+  /** Timeout for HTTP requests in milliseconds (default: DEFAULT_LABS_USAGE_TIMEOUT_MS) */
   timeout?: number;
 }
 
@@ -63,7 +65,7 @@ export class LabsUsageTracker {
     this.serviceToken = config.serviceToken;
     this.solutionName = config.solutionName;
     this.version = config.version;
-    this.timeout = config.timeout ?? 5000;
+    this.timeout = config.timeout ?? DEFAULT_LABS_USAGE_TIMEOUT_MS;
   }
 
   /**

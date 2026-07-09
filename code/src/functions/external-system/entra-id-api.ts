@@ -30,7 +30,13 @@
 import axios, { AxiosInstance } from 'axios';
 
 // Import configuration constants (URLs, timeouts, limits)
-import { GRAPH_BASE_URL, HTTP_REQUEST_TIMEOUT_MS, MAX_RETRIES, PAGE_SIZE } from '../common/constants';
+import {
+  EXTENSION_DISCOVERY_APP_LIMIT,
+  GRAPH_BASE_URL,
+  HTTP_REQUEST_TIMEOUT_MS,
+  MAX_RETRIES,
+  PAGE_SIZE,
+} from '../common/constants';
 // Import utility functions for error handling and validation
 import {
   validateTenantId,
@@ -311,8 +317,8 @@ export class EntraIDClient {
             // Store error for potential re-throw
             lastError = error;
 
-            // Calculate exponential backoff delay
-            const backoffMs = attempt * 1000; // 1s, 2s, 3s for attempts 1, 2, 3
+            // Exponential backoff: 1s, 2s, 4s for attempts 1, 2, 3
+            const backoffMs = Math.pow(2, attempt - 1) * 1000;
 
             // Log retry attempt for debugging
             console.warn(
@@ -566,7 +572,9 @@ export class EntraIDClient {
 
   async listApplicationsForExtensionDiscovery(): Promise<EntraApplication[]> {
     // Get first page of apps to find extension property registrations
-    const response = await this.get<GraphPagedResponse<EntraApplication>>(`/applications?$top=100`);
+    const response = await this.get<GraphPagedResponse<EntraApplication>>(
+      `/applications?$top=${EXTENSION_DISCOVERY_APP_LIMIT}`
+    );
     return response.value;
   }
 
