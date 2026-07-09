@@ -82,7 +82,7 @@ import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas
 import { validateConnectionData } from '../../common/security';
 import { State } from '../../common/state';
 import { formatError } from '../../common/utils';
-import { acquireAccessToken, EntraIDClient } from '../../external-system/entra_id_api';
+import { acquireAccessToken, EntraIDClient } from '../../external-system/entra-id-api';
 import baseEdm from '../../external-system/external_domain_metadata.json';
 
 // ══════════════════════════════════════════════════════════════════════════════

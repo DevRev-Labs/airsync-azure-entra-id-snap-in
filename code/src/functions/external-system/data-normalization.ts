@@ -237,38 +237,6 @@ export function normalizeDirectoryRole(role: EntraDirectoryRole): NormalizedItem
 }
 
 /**
- * Normalize Role Member Relationship
- *
- * Represents an assignment relationship between a directory role and a member.
- * Creates a composite ID from role and member IDs to ensure uniqueness.
- *
- * @param member - Raw member object from Microsoft Graph /directoryRoles/{id}/members endpoint
- * @param roleId - The directory role ID this member is assigned to
- * @returns Normalized relationship item linking member to role
- */
-export function normalizeRoleMember(
-  member: EntraDirectoryRoleMember,
-  roleId: string
-): NormalizedItem {
-  // Extract member type from @odata.type (e.g., "#microsoft.graph.user" -> "user")
-  const memberType = (member['@odata.type']?.split('.').pop() || 'unknown').toLowerCase();
-
-  return {
-    // Composite ID ensures uniqueness: "roleId_memberId" (underscore separator)
-    id: `${roleId}_${member.id}`,
-    // Graph API doesn't provide role assignment timestamps
-    created_date: FALLBACK_DATE,
-    modified_date: FALLBACK_DATE,
-    data: {
-      member_id: member.id, // ID of the assigned member (usually a user)
-      role_id: roleId, // ID of the directory role
-      member_type: memberType, // Type of member (user, group, serviceprincipal) - lowercase
-      member_display_name: member.displayName ?? null, // Display name of member
-    },
-  };
-}
-
-/**
  * Normalize Application Entity
  *
  * Transforms an Azure AD application registration into DevRev format.
@@ -403,10 +371,7 @@ export function normalizeOrgContact(contact: EntraOrgContact): NormalizedItem {
     modified_date: contact.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
     data: {
       display_name: contact.displayName, // Contact display name
-      mail: contact.mail ?? null, // Contact email address
-      given_name: contact.givenName ?? null, // Contact first/given name
-      surname: contact.surname ?? null, // Contact last/surname
-      email: contact.mail ?? null, // Contact email address (legacy field name)
+      email: contact.mail ?? null, // Contact email address
       full_name: fullName, // Constructed full name or null
     },
   };
@@ -779,11 +744,8 @@ export function normalizeLicenseAssignment(
     modified_date: FALLBACK_DATE,
     data: {
       user_id: userId, // ID of the user who has this license
-      license_id: license.id, // License assignment ID (GUID)
       sku_id: license.skuId, // License SKU ID (GUID)
       sku_part_number: license.skuPartNumber ?? null, // Human-readable SKU name (e.g., "ENTERPRISEPACK")
-      // Service plans array (for nested structure access)
-      service_plans: license.servicePlans ?? [],
       // Service plan summaries for easy querying
       active_service_plans: activeServicePlans, // Comma-separated list of active plans
       disabled_service_plans: disabledServicePlans, // Comma-separated list of disabled plans
@@ -851,8 +813,6 @@ export function normalizePIMEligibleRole(schedule: EntraPIMRoleEligibilitySchedu
       role_definition_id: schedule.roleDefinitionId, // ID of the directory role
       directory_scope_id: schedule.directoryScopeId ?? null, // Scope of the role (typically "/" for directory)
       status: schedule.status ?? null, // Status: "Provisioned", "Revoked", etc.
-      // Schedule info object (for nested structure access)
-      schedule_info: schedule.scheduleInfo ?? null,
       // Schedule timing information (flattened for easy querying)
       schedule_start_date_time: scheduleStartDateTime, // When eligibility begins
       schedule_end_date_time: scheduleEndDateTime, // When eligibility ends (null if permanent)
@@ -983,10 +943,6 @@ export function normalizeConditionalAccessPolicy(policy: EntraConditionalAccessP
     data: {
       display_name: policy.displayName, // Policy display name
       state: policy.state ?? null, // Policy state: "enabled", "disabled", or "enabledForReportingButNotEnforced"
-      // Condition and control objects (for nested structure access)
-      conditions: policy.conditions ?? null,
-      grant_controls: policy.grantControls ?? null,
-      session_controls: policy.sessionControls ?? null,
       // Flattened user condition fields (for easy querying)
       include_users: includeUsers, // Comma-separated list of included users
       exclude_users: excludeUsers, // Comma-separated list of excluded users
@@ -1107,9 +1063,6 @@ export function normalizeLifecycleWorkflow(workflow: EntraLifecycleWorkflow): No
       description: workflow.description ?? null, // Workflow description
       category: workflow.category ?? null, // Workflow category: "joiner", "leaver", or "mover"
       is_enabled: workflow.isEnabled ?? null, // Whether workflow is currently active
-      // Execution conditions and tasks (for nested structure access)
-      execution_conditions: workflow.executionConditions ?? null,
-      tasks: workflow.tasks ?? [],
       // Trigger/execution condition fields (flattened for easy querying)
       trigger_scope: triggerScope, // Type of trigger condition
       trigger_time_based_attribute: triggerTimeBasedAttribute, // Which date attribute triggers it
@@ -1159,7 +1112,7 @@ export function normalizeLifecycleWorkflow(workflow: EntraLifecycleWorkflow): No
  * @param audit - Raw directory audit log from /auditLogs/directoryAudits
  * @returns Normalized item with audit details and extracted fields
  */
-export function normalizeDirectoryAudit(audit: EntraDirectoryAudit): NormalizedItem {
+export function normalizeDirectoryAuditLog(audit: EntraDirectoryAudit): NormalizedItem {
   // ── Extract Initiator Information ───────────────────────────────────────
   // Who or what performed this action?
 
@@ -1310,7 +1263,7 @@ export function normalizeDirectoryAudit(audit: EntraDirectoryAudit): NormalizedI
  * @param signIn - Raw sign-in log from /auditLogs/signIns
  * @returns Normalized item with sign-in details and extracted location/device info
  */
-export function normalizeSignIn(signIn: EntraSignIn): NormalizedItem {
+export function normalizeSignInLog(signIn: EntraSignIn): NormalizedItem {
   // ── Extract Location Information ────────────────────────────────────────
   // Where did this sign-in originate from? (IP-based geolocation)
 

@@ -99,7 +99,30 @@ describe('formatError', () => {
     };
 
     const result = formatError(error);
-    expect(result).toBe('HTTP 404: Not Found');
+    // Body is `{}` → stringified as `{}`; no stack on the partial mock.
+    expect(result).toBe('HTTP 404: Not Found | body: {}');
+  });
+
+  it('should include Graph API error body when present', () => {
+    const error: Partial<AxiosError> = {
+      isAxiosError: true,
+      response: {
+        status: 401,
+        statusText: 'Unauthorized',
+        data: { error: { code: 'InvalidAuthenticationToken', message: 'Token expired' } },
+        headers: {},
+        config: {} as any,
+      },
+      message: 'Request failed',
+      name: 'AxiosError',
+      config: {} as any,
+      toJSON: () => ({}),
+    };
+
+    const result = formatError(error);
+    expect(result).toContain('HTTP 401: Unauthorized');
+    expect(result).toContain('InvalidAuthenticationToken');
+    expect(result).toContain('Token expired');
   });
 
   it('should format AxiosError with status but no statusText', () => {
@@ -119,7 +142,7 @@ describe('formatError', () => {
     };
 
     const result = formatError(error);
-    expect(result).toBe('HTTP 500: Internal Server Error');
+    expect(result).toBe('HTTP 500: Internal Server Error | body: {}');
   });
 
   it('should format AxiosError with no response', () => {
@@ -133,13 +156,17 @@ describe('formatError', () => {
     };
 
     const result = formatError(error);
+    // No response body → no ` | body:` suffix.
     expect(result).toBe('HTTP unknown: Network Error');
   });
 
-  it('should format standard Error', () => {
+  it('should format standard Error with stack trace', () => {
     const error = new Error('Something went wrong');
     const result = formatError(error);
-    expect(result).toBe('Something went wrong');
+    // Stack starts with the message; assert on the message being present
+    // rather than on strict equality so this test doesn't break across
+    // Node versions.
+    expect(result).toContain('Something went wrong');
   });
 
   it('should format string error', () => {

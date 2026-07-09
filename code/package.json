@@ -17,8 +17,7 @@
     "lint:fix": "eslint --fix ."
   },
   "dependencies": {
-    "@devrev/ts-adaas": "^1.18.0",
-    "@devrev/typescript-sdk": "^1.0.0",
+    "@devrev/ts-adaas": "^1.19.10",
     "axios": "^1.16.0"
   },
   "overrides": {

@@ -13,9 +13,10 @@
  */
 
 import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+
 // Import the State type to satisfy the generic WorkerAdapter type parameter
+import { LabsUsageTracker } from '../../common/labs-usage';
 import { State } from '../../common/state';
-import { LabsUsageTracker } from '../../common/labs_usage';
 
 /**
  * Register the attachment extraction task with the ADaaS worker framework.
@@ -138,7 +139,7 @@ processTask({
         ];
 
         for (const entity of entities) {
-          const entityState = (state as any)[entity];
+          const entityState = (state as unknown as Record<string, { skipped?: boolean; completed?: boolean; extractedCount?: number } | undefined>)[entity];
           if (entityState?.skipped || (entityState?.completed && (entityState?.extractedCount || 0) === 0)) {
             skippedEntities.push(entity);
           }

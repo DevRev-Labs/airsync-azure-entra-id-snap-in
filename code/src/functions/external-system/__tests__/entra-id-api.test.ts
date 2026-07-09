@@ -24,7 +24,7 @@
 
 import axios, { AxiosError, AxiosInstance } from 'axios';
 
-import { acquireAccessToken, EntraIDClient } from '../entra_id_api';
+import { acquireAccessToken, EntraIDClient } from '../entra-id-api';
 import {
   EntraUser,
   EntraGroup,

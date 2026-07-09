@@ -20,7 +20,6 @@ import {
   normalizeGroup,
   normalizeGroupMember,
   normalizeDirectoryRole,
-  normalizeRoleMember,
   normalizeApplication,
   normalizeServicePrincipal,
   normalizeDevice,
@@ -33,8 +32,8 @@ import {
   normalizePIMEligibleRole,
   normalizeConditionalAccessPolicy,
   normalizeLifecycleWorkflow,
-  normalizeDirectoryAudit,
-  normalizeSignIn,
+  normalizeDirectoryAuditLog,
+  normalizeSignInLog,
 } from '../data-normalization';
 import {
   EntraUser,
@@ -88,22 +87,17 @@ describe('normalizeUser', () => {
 
     const result = normalizeUser(user);
 
+    // normalizeUser emits only the three fields declared in the EDM
+    // (users record type: display_name, email, full_name) plus dynamic
+    // extension_* attributes. Other Graph fields (jobTitle, department,
+    // businessPhones, …) are intentionally dropped to keep the payload
+    // aligned with the domain metadata.
     expect(result.id).toBe(user.id);
     expect(result.created_date).toBe(user.createdDateTime);
     expect(result.modified_date).toBe(user.createdDateTime);
     expect(result.data.display_name).toBe('John Doe');
     expect(result.data.email).toBe('john.doe@contoso.com');
     expect(result.data.full_name).toBe('John Doe');
-    expect(result.data.job_title).toBe('Software Engineer');
-    expect(result.data.department).toBe('Engineering');
-    expect(result.data.office_location).toBe('Building 1');
-    expect(result.data.mobile_phone).toBe('+1-555-0100');
-    expect(result.data.business_phones).toBe('+1-555-0101, +1-555-0102');
-    expect(result.data.account_enabled).toBe(true);
-    expect(result.data.user_type).toBe('Member');
-    expect(result.data.item_url_field).toBe(
-      'https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserProfileMenuBlade/~/overview/userId/12345678-1234-1234-1234-123456789012'
-    );
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -129,14 +123,15 @@ describe('normalizeUser', () => {
 
     const result = normalizeUser(user);
 
+    // With all optional Graph fields null, we still emit the three EDM
+    // fields; job_title/department/office_location aren't in the EDM so
+    // there's nothing to assert about them.
     expect(result.id).toBe(user.id);
     expect(result.created_date).toBe(FALLBACK_DATE);
     expect(result.modified_date).toBe(FALLBACK_DATE);
     expect(result.data.display_name).toBeNull();
     expect(result.data.email).toBe('user@contoso.com'); // Falls back to userPrincipalName
     expect(result.data.full_name).toBeNull();
-    expect(result.data.job_title).toBeNull();
-    expect(result.data.department).toBeNull();
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -269,15 +264,17 @@ describe('normalizeGroup', () => {
 
     const result = normalizeGroup(group);
 
+    // normalizeGroup emits only what the EDM declares for `groups`:
+    // name (mapped from displayName), description, and item_url_field
+    // (Azure Portal deep link). Fields like mail / groupTypes /
+    // securityEnabled / mailEnabled are intentionally dropped.
     expect(result.id).toBe(group.id);
     expect(result.created_date).toBe(group.createdDateTime);
     expect(result.modified_date).toBe(group.createdDateTime);
-    expect(result.data.display_name).toBe('Engineering Team');
+    expect(result.data.name).toBe('Engineering Team');
     expect(result.data.description).toBe('All engineers in the organization');
-    expect(result.data.mail).toBe('engineering@contoso.com');
-    expect(result.data.group_types).toBe('Unified');
-    expect(result.data.security_enabled).toBe(true);
-    expect(result.data.mail_enabled).toBe(true);
+    expect(typeof result.data.item_url_field).toBe('string');
+    expect(result.data.item_url_field).toContain(group.id);
   });
 
   it('should handle group with null fields', () => {
@@ -295,13 +292,11 @@ describe('normalizeGroup', () => {
     const result = normalizeGroup(group);
 
     expect(result.created_date).toBe(FALLBACK_DATE);
+    expect(result.data.name).toBe('Empty Group');
     expect(result.data.description).toBeNull();
-    expect(result.data.mail).toBeNull();
-    expect(result.data.group_types).toBe('');
-    expect(result.data.security_enabled).toBeNull();
   });
 
-  it('should handle Microsoft 365 group (Unified)', () => {
+  it('should emit the Azure Portal deep link for a Microsoft 365 group', () => {
     const group: EntraGroup = {
       id: '87654321-4321-4321-4321-210987654321',
       displayName: 'Sales Team',
@@ -315,11 +310,12 @@ describe('normalizeGroup', () => {
 
     const result = normalizeGroup(group);
 
-    expect(result.data.group_types).toBe('Unified');
-    expect(result.data.mail_enabled).toBe(true);
+    expect(result.data.name).toBe('Sales Team');
+    expect(result.data.item_url_field).toContain('GroupDetailsMenuBlade');
+    expect(result.data.item_url_field).toContain(group.id);
   });
 
-  it('should handle security group', () => {
+  it('should emit the description when present on a security group', () => {
     const group: EntraGroup = {
       id: '87654321-4321-4321-4321-210987654321',
       displayName: 'Security Admins',
@@ -333,9 +329,8 @@ describe('normalizeGroup', () => {
 
     const result = normalizeGroup(group);
 
-    expect(result.data.security_enabled).toBe(true);
-    expect(result.data.mail_enabled).toBe(false);
-    expect(result.data.group_types).toBe('');
+    expect(result.data.name).toBe('Security Admins');
+    expect(result.data.description).toBe('Security administrators group');
   });
 });
 
@@ -345,6 +340,11 @@ describe('normalizeGroup', () => {
 
 describe('normalizeGroupMember', () => {
   const groupId = 'group-123';
+
+  // The EDM for `group_members` declares only two fields: member_id and
+  // group_id. member_type / member_display_name were dropped when the
+  // record type was slimmed down to a pure relationship join. These tests
+  // now assert the minimal shape only.
 
   it('should normalize group member for user', () => {
     const member: EntraDirectoryRoleMember = {
@@ -358,8 +358,6 @@ describe('normalizeGroupMember', () => {
     expect(result.id).toBe('group-123_user-456');
     expect(result.data.group_id).toBe('group-123');
     expect(result.data.member_id).toBe('user-456');
-    expect(result.data.member_type).toBe('user');
-    expect(result.data.member_display_name).toBe('John Doe');
   });
 
   it('should normalize group member for group (nested group)', () => {
@@ -372,11 +370,11 @@ describe('normalizeGroupMember', () => {
     const result = normalizeGroupMember(member, groupId);
 
     expect(result.id).toBe('group-123_group-789');
-    expect(result.data.member_type).toBe('group');
-    expect(result.data.member_display_name).toBe('Nested Group');
+    expect(result.data.member_id).toBe('group-789');
+    expect(result.data.group_id).toBe('group-123');
   });
 
-  it('should handle member with no display name', () => {
+  it('should still produce a stable composite id when member has no display name', () => {
     const member: EntraDirectoryRoleMember = {
       id: 'user-999',
       '@odata.type': '#microsoft.graph.user',
@@ -384,10 +382,11 @@ describe('normalizeGroupMember', () => {
 
     const result = normalizeGroupMember(member, groupId);
 
-    expect(result.data.member_display_name).toBeNull();
+    expect(result.id).toBe('group-123_user-999');
+    expect(result.data.member_id).toBe('user-999');
   });
 
-  it('should handle service principal member', () => {
+  it('should normalize a service principal member', () => {
     const member: EntraDirectoryRoleMember = {
       id: 'sp-111',
       '@odata.type': '#microsoft.graph.servicePrincipal',
@@ -396,7 +395,9 @@ describe('normalizeGroupMember', () => {
 
     const result = normalizeGroupMember(member, groupId);
 
-    expect(result.data.member_type).toBe('serviceprincipal');
+    expect(result.id).toBe('group-123_sp-111');
+    expect(result.data.member_id).toBe('sp-111');
+    expect(result.data.group_id).toBe('group-123');
   });
 });
 
@@ -437,31 +438,7 @@ describe('normalizeDirectoryRole', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TEST SUITE #5: normalizeRoleMember
-// ══════════════════════════════════════════════════════════════════════════════
-
-describe('normalizeRoleMember', () => {
-  const roleId = 'role-123';
-
-  it('should normalize role member', () => {
-    const member: EntraDirectoryRoleMember = {
-      id: 'user-456',
-      '@odata.type': '#microsoft.graph.user',
-      displayName: 'Admin User',
-    };
-
-    const result = normalizeRoleMember(member, roleId);
-
-    expect(result.id).toBe('role-123_user-456');
-    expect(result.data.role_id).toBe('role-123');
-    expect(result.data.member_id).toBe('user-456');
-    expect(result.data.member_type).toBe('user');
-    expect(result.data.member_display_name).toBe('Admin User');
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-// TEST SUITE #6: normalizeApplication
+// TEST SUITE #5: normalizeApplication
 // ══════════════════════════════════════════════════════════════════════════════
 
 describe('normalizeApplication', () => {
@@ -637,9 +614,8 @@ describe('normalizeOrgContact', () => {
     expect(result.id).toBe('contact-123');
     expect(result.created_date).toBe('2024-01-10T08:00:00Z');
     expect(result.data.display_name).toBe('External Partner');
-    expect(result.data.mail).toBe('partner@external.com');
-    expect(result.data.given_name).toBe('John');
-    expect(result.data.surname).toBe('Partner');
+    expect(result.data.email).toBe('partner@external.com');
+    expect(result.data.full_name).toBe('John Partner');
   });
 
   it('should handle contact with null fields', () => {
@@ -655,8 +631,8 @@ describe('normalizeOrgContact', () => {
     const result = normalizeOrgContact(contact);
 
     expect(result.created_date).toBe(FALLBACK_DATE);
-    expect(result.data.mail).toBeNull();
-    expect(result.data.given_name).toBeNull();
+    expect(result.data.email).toBeNull();
+    expect(result.data.full_name).toBeNull();
   });
 });
 
@@ -787,11 +763,14 @@ describe('Edge Cases', () => {
     expect(result.data.email).toBe('user@contoso.com'); // Falls back to UPN
   });
 
-  it('should handle arrays with empty values', () => {
+  it('should fall back to userPrincipalName when mail is missing', () => {
+    // Edge case: users provisioned without a primary SMTP address still
+    // need a resolvable email in the normalized output. normalizeUser
+    // falls back to userPrincipalName in that case.
     const user: EntraUser = {
       id: 'user-456',
       displayName: 'Test User',
-      mail: 'test@contoso.com',
+      mail: null,
       userPrincipalName: 'test@contoso.com',
       givenName: null,
       surname: null,
@@ -799,7 +778,7 @@ describe('Edge Cases', () => {
       department: null,
       officeLocation: null,
       mobilePhone: null,
-      businessPhones: ['', '+1-555-0100', ''],
+      businessPhones: [],
       accountEnabled: true,
       userType: 'Member',
       createdDateTime: '2024-03-15T11:00:00Z',
@@ -807,10 +786,12 @@ describe('Edge Cases', () => {
 
     const result = normalizeUser(user);
 
-    expect(result.data.business_phones).toBe(', +1-555-0100, ');
+    expect(result.data.email).toBe('test@contoso.com');
   });
 
-  it('should handle group with empty groupTypes array', () => {
+  it('should still produce a stable url for a group with an empty groupTypes array', () => {
+    // groupTypes is not part of the EDM anymore, but the group entity
+    // must still normalize cleanly (with a valid deep link) regardless.
     const group: EntraGroup = {
       id: 'group-123',
       displayName: 'Empty Types Group',
@@ -824,7 +805,8 @@ describe('Edge Cases', () => {
 
     const result = normalizeGroup(group);
 
-    expect(result.data.group_types).toBe('');
+    expect(result.data.name).toBe('Empty Types Group');
+    expect(result.data.item_url_field).toContain(group.id);
   });
 });
 
@@ -834,6 +816,11 @@ describe('Edge Cases', () => {
 
 describe('normalizeAuthenticationMethod', () => {
   const userId = 'user-123';
+
+  // method_type is emitted in camelCase to match the EDM enum values
+  // (e.g. `microsoftAuthenticatorAuthenticationMethod`) — the domain
+  // metadata enum is case-sensitive. The user-facing title is written to
+  // `display_name`, not to a separate `title` field.
 
   it('should normalize authentication method for Microsoft Authenticator', () => {
     const method: EntraAuthenticationMethod = {
@@ -851,8 +838,7 @@ describe('normalizeAuthenticationMethod', () => {
     expect(result.created_date).toBe('2024-01-20T10:00:00Z');
     expect(result.data.user_id).toBe('user-123');
     expect(result.data.method_id).toBe('method-456');
-    expect(result.data.method_type).toBe('microsoftauthenticatorauthenticationmethod');
-    expect(result.data.title).toBe('My iPhone'); // Uses displayName when available
+    expect(result.data.method_type).toBe('microsoftAuthenticatorAuthenticationMethod');
     expect(result.data.display_name).toBe('My iPhone');
     expect(result.data.device_tag).toBe('iOS');
     expect(result.data.phone_app_version).toBe('6.5.8');
@@ -869,8 +855,10 @@ describe('normalizeAuthenticationMethod', () => {
 
     const result = normalizeAuthenticationMethod(method, userId);
 
-    expect(result.data.method_type).toBe('phoneauthenticationmethod');
-    expect(result.data.title).toBe('Phone Authentication'); // Generated title when no displayName
+    expect(result.data.method_type).toBe('phoneAuthenticationMethod');
+    // No displayName on the method → generated title includes the number.
+    expect(result.data.display_name).toContain('Phone Authentication');
+    expect(result.data.display_name).toContain('+1-555-0100');
     expect(result.data.phone_number).toBe('+1-555-0100');
     expect(result.data.phone_type).toBe('mobile');
   });
@@ -885,8 +873,8 @@ describe('normalizeAuthenticationMethod', () => {
     const result = normalizeAuthenticationMethod(method, userId);
 
     expect(result.created_date).toBe(FALLBACK_DATE);
-    expect(result.data.method_type).toBe('passwordauthenticationmethod');
-    expect(result.data.title).toBe('Password Authentication'); // Generated title
+    expect(result.data.method_type).toBe('passwordAuthenticationMethod');
+    expect(result.data.display_name).toBe('Password'); // Generated fallback title
   });
 });
 
@@ -924,10 +912,19 @@ describe('normalizeAuthenticationMethodsPolicy', () => {
 
     const result = normalizeAuthenticationMethodsPolicy(policy);
 
+    // The EDM types registration_enforcement and
+    // authentication_method_configurations as rich_text, so the
+    // normalizer serialises those nested structures to JSON strings.
     expect(result.id).toBe('policy-123');
     expect(result.data.display_name).toBe('Authentication Methods Policy');
-    expect(result.data.registration_enforcement).toBeDefined();
-    expect(result.data.authentication_method_configurations).toHaveLength(1);
+    expect(typeof result.data.registration_enforcement).toBe('string');
+    expect(result.data.registration_enforcement).toContain('microsoftAuthenticator');
+    expect(typeof result.data.authentication_method_configurations).toBe('string');
+    expect(result.data.authentication_method_configurations).toContain('fido2AuthenticationMethodConfiguration');
+    expect(result.data.total_auth_method_configurations).toBe(1);
+    expect(result.data.enabled_auth_methods).toBe('fido2');
+    expect(result.data.registration_campaign_state).toBe('enabled');
+    expect(result.data.registration_snooze_days).toBe(7);
   });
 
   it('should handle policy with null registration enforcement', () => {
@@ -940,8 +937,14 @@ describe('normalizeAuthenticationMethodsPolicy', () => {
 
     const result = normalizeAuthenticationMethodsPolicy(policy);
 
+    // registration_enforcement is null → normalizer emits null (not a
+    // JSON string). authentication_method_configurations is an empty
+    // array → normalizer emits the JSON-encoded empty array "[]".
     expect(result.data.registration_enforcement).toBeNull();
-    expect(result.data.authentication_method_configurations).toEqual([]);
+    expect(result.data.authentication_method_configurations).toBe('[]');
+    expect(result.data.total_auth_method_configurations).toBe(0);
+    expect(result.data.enabled_auth_methods).toBeNull();
+    expect(result.data.registration_campaign_state).toBeNull();
   });
 });
 
@@ -975,10 +978,10 @@ describe('normalizeLicenseAssignment', () => {
 
     expect(result.id).toBe('user-123_license-456');
     expect(result.data.user_id).toBe('user-123');
-    expect(result.data.license_id).toBe('license-456');
     expect(result.data.sku_id).toBe('sku-789');
     expect(result.data.sku_part_number).toBe('ENTERPRISEPACK');
-    expect(result.data.service_plans).toHaveLength(2);
+    expect(result.data.total_service_plans).toBe(2);
+    expect(result.data.success_service_plans_count).toBe(2);
   });
 
   it('should handle license with null sku part number', () => {
@@ -992,7 +995,7 @@ describe('normalizeLicenseAssignment', () => {
     const result = normalizeLicenseAssignment(license, userId);
 
     expect(result.data.sku_part_number).toBeNull();
-    expect(result.data.service_plans).toEqual([]);
+    expect(result.data.total_service_plans).toBe(0);
   });
 });
 
@@ -1025,7 +1028,8 @@ describe('normalizePIMEligibleRole', () => {
     expect(result.data.role_definition_id).toBe('role-789');
     expect(result.data.directory_scope_id).toBe('/');
     expect(result.data.status).toBe('Provisioned');
-    expect(result.data.schedule_info).toBeDefined();
+    expect(result.data.schedule_start_date_time).toBe('2024-01-01T00:00:00Z');
+    expect(result.data.expiration_type).toBe('noExpiration');
   });
 
   it('should handle PIM role with null schedule info', () => {
@@ -1042,7 +1046,7 @@ describe('normalizePIMEligibleRole', () => {
     const result = normalizePIMEligibleRole(pimRole);
 
     expect(result.created_date).toBe(FALLBACK_DATE);
-    expect(result.data.schedule_info).toBeNull();
+    expect(result.data.schedule_start_date_time).toBeNull();
     expect(result.data.status).toBeNull();
   });
 });
@@ -1082,8 +1086,10 @@ describe('normalizeConditionalAccessPolicy', () => {
     expect(result.modified_date).toBe('2024-03-10T10:00:00Z');
     expect(result.data.display_name).toBe('Require MFA for Admins');
     expect(result.data.state).toBe('enabled');
-    expect(result.data.conditions).toBeDefined();
-    expect(result.data.grant_controls).toBeDefined();
+    expect(result.data.include_users).toBe('user-456');
+    expect(result.data.include_applications).toBe('All');
+    expect(result.data.grant_built_in_controls).toBe('mfa');
+    expect(result.data.grant_operator).toBe('OR');
   });
 
   it('should handle policy with null conditions and controls', () => {
@@ -1102,8 +1108,8 @@ describe('normalizeConditionalAccessPolicy', () => {
 
     expect(result.created_date).toBe(FALLBACK_DATE);
     expect(result.modified_date).toBe(FALLBACK_DATE);
-    expect(result.data.conditions).toBeNull();
-    expect(result.data.grant_controls).toBeNull();
+    expect(result.data.include_users).toBeNull();
+    expect(result.data.grant_built_in_controls).toBeNull();
   });
 });
 
@@ -1146,7 +1152,8 @@ describe('normalizeLifecycleWorkflow', () => {
     expect(result.data.description).toBe('Automated onboarding workflow');
     expect(result.data.category).toBe('joiner');
     expect(result.data.is_enabled).toBe(true);
-    expect(result.data.tasks).toHaveLength(1);
+    expect(result.data.task_count).toBe(1);
+    expect(result.data.task_names).toBe('Send welcome email');
   });
 
   it('should handle workflow with null fields', () => {
@@ -1167,15 +1174,15 @@ describe('normalizeLifecycleWorkflow', () => {
     expect(result.created_date).toBe(FALLBACK_DATE);
     expect(result.modified_date).toBe(FALLBACK_DATE);
     expect(result.data.description).toBeNull();
-    expect(result.data.tasks).toEqual([]);
+    expect(result.data.task_count).toBe(0);
   });
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TEST SUITE #19: normalizeDirectoryAudit
+// TEST SUITE #19: normalizeDirectoryAuditLog
 // ══════════════════════════════════════════════════════════════════════════════
 
-describe('normalizeDirectoryAudit', () => {
+describe('normalizeDirectoryAuditLog', () => {
   it('should normalize directory audit log with all fields', () => {
     const audit: EntraDirectoryAudit = {
       id: 'audit-123',
@@ -1215,8 +1222,13 @@ describe('normalizeDirectoryAudit', () => {
       ],
     };
 
-    const result = normalizeDirectoryAudit(audit);
+    const result = normalizeDirectoryAuditLog(audit);
 
+    // Target resources are flattened into `target_resources_json` (a
+    // JSON-serialised string, aligned with the EDM's rich_text type)
+    // plus a `target_resources_count`. Individual target fields from
+    // the first entry are also lifted to top-level (target_object_id,
+    // target_display_name, target_type, target_user_principal_name).
     expect(result.id).toBe('audit-123');
     expect(result.created_date).toBe('2024-03-15T14:30:00Z');
     expect(result.modified_date).toBe('2024-03-15T14:30:00Z');
@@ -1225,7 +1237,12 @@ describe('normalizeDirectoryAudit', () => {
     expect(result.data.result).toBe('success');
     expect(result.data.initiated_by_user_id).toBe('user-456');
     expect(result.data.initiated_by_user_display_name).toBe('Admin User');
-    expect(result.data.target_resources).toHaveLength(1);
+    expect(result.data.target_resources_count).toBe(1);
+    expect(typeof result.data.target_resources_json).toBe('string');
+    expect(result.data.target_resources_json).toContain('user-789');
+    expect(result.data.target_object_id).toBe('user-789');
+    expect(result.data.target_display_name).toBe('New User');
+    expect(result.data.target_type).toBe('User');
   });
 
   it('should handle audit log with app initiator', () => {
@@ -1247,7 +1264,7 @@ describe('normalizeDirectoryAudit', () => {
       additionalDetails: [],
     };
 
-    const result = normalizeDirectoryAudit(audit);
+    const result = normalizeDirectoryAuditLog(audit);
 
     expect(result.data.initiated_by_user_id).toBeNull();
     expect(result.data.initiated_by_app_id).toBe('app-789');
@@ -1267,7 +1284,7 @@ describe('normalizeDirectoryAudit', () => {
       additionalDetails: [],
     };
 
-    const result = normalizeDirectoryAudit(audit);
+    const result = normalizeDirectoryAuditLog(audit);
 
     expect(result.data.initiated_by_user_id).toBeNull();
     expect(result.data.initiated_by_app_id).toBeNull();
@@ -1275,10 +1292,10 @@ describe('normalizeDirectoryAudit', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TEST SUITE #20: normalizeSignIn
+// TEST SUITE #20: normalizeSignInLog
 // ══════════════════════════════════════════════════════════════════════════════
 
-describe('normalizeSignIn', () => {
+describe('normalizeSignInLog', () => {
   it('should normalize sign-in log with all fields', () => {
     const signIn: EntraSignIn = {
       id: 'signin-123',
@@ -1320,7 +1337,7 @@ describe('normalizeSignIn', () => {
       riskState: 'none',
     };
 
-    const result = normalizeSignIn(signIn);
+    const result = normalizeSignInLog(signIn);
 
     expect(result.id).toBe('signin-123');
     expect(result.created_date).toBe('2024-03-15T14:45:00Z');
@@ -1361,7 +1378,7 @@ describe('normalizeSignIn', () => {
       riskState: 'none',
     };
 
-    const result = normalizeSignIn(signIn);
+    const result = normalizeSignInLog(signIn);
 
     expect(result.data.status_error_code).toBe(50126);
     expect(result.data.status_failure_reason).toBe('Invalid username or password');
@@ -1399,7 +1416,7 @@ describe('normalizeSignIn', () => {
       riskState: 'atRisk',
     };
 
-    const result = normalizeSignIn(signIn);
+    const result = normalizeSignInLog(signIn);
 
     expect(result.data.risk_detail).toBe('unfamiliarFeatures');
     expect(result.data.risk_level_aggregated).toBe('high');
