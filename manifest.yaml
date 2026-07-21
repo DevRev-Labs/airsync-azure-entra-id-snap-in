@@ -40,7 +40,7 @@ service_account:
         optional: false
         reason: Run AirSync extraction, state, and snap-in lifecycle for this connector.
       - scope: sync_history:read
-        optional: false
+        optional: true
         reason: Read sync history to track and resume previous sync runs for Azure Entra ID.
 
 functions:
