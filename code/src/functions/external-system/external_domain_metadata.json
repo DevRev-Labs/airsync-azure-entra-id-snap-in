@@ -58,6 +58,16 @@
               "#record:groups": {}
             }
           }
+        },
+        "remove_member_ids": {
+          "name": "Removed Members",
+          "type": "reference",
+          "reference": {
+            "refers_to": {
+              "#record:users": {}
+            }
+          },
+          "collection": {}
         }
       }
     },

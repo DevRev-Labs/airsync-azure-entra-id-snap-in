@@ -122,7 +122,7 @@ const ENTRA_ADMIN_URL = 'https://entra.microsoft.com';
  * };
  * const normalized = normalizeUser(rawUser);
  */
-export function normalizeUser(user: EntraUser): NormalizedItem {
+export function normalizeUser(user: EntraUser, modifiedDate?: string): NormalizedItem {
   // Construct full name from first and last name, filter out null/undefined values
   const fullName = [user.givenName, user.surname].filter(Boolean).join(' ') || null;
 
@@ -147,7 +147,9 @@ export function normalizeUser(user: EntraUser): NormalizedItem {
   return {
     id: user.id, // Unique Azure AD user ID (GUID)
     created_date: user.createdDateTime || FALLBACK_DATE, // When user was created
-    modified_date: user.createdDateTime || FALLBACK_DATE, // Use creation date (Graph doesn't provide modified date)
+    // Graph doesn't provide a modified date; delta (incremental) results pass the sync
+    // time so DevRev treats the record as updated.
+    modified_date: modifiedDate || user.createdDateTime || FALLBACK_DATE,
     data, // All user data fields
   };
 }
@@ -163,11 +165,11 @@ export function normalizeUser(user: EntraUser): NormalizedItem {
  * @param group - Raw group object from Microsoft Graph /groups endpoint
  * @returns Normalized item with group name, description, and portal link
  */
-export function normalizeGroup(group: EntraGroup): NormalizedItem {
+export function normalizeGroup(group: EntraGroup, modifiedDate?: string): NormalizedItem {
   return {
     id: group.id, // Unique Azure AD group ID (GUID)
     created_date: group.createdDateTime || FALLBACK_DATE, // When group was created
-    modified_date: group.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
+    modified_date: modifiedDate || group.createdDateTime || FALLBACK_DATE, // Sync time for delta updates, else creation date
     data: {
       name: group.displayName, // Group display name
       description: group.description ?? null, // Group description (may be null)
@@ -191,17 +193,48 @@ export function normalizeGroup(group: EntraGroup): NormalizedItem {
  */
 export function normalizeGroupMember(
   member: EntraDirectoryRoleMember,
-  groupId: string
+  groupId: string,
+  modifiedDate?: string
 ): NormalizedItem {
   return {
     // Composite ID ensures uniqueness: "groupId_memberId" (underscore separator)
     id: `${groupId}_${member.id}`,
     // Graph API doesn't provide membership timestamps
     created_date: FALLBACK_DATE,
-    modified_date: FALLBACK_DATE,
+    modified_date: modifiedDate || FALLBACK_DATE,
     data: {
       member_id: member.id, // ID of the member (user/group/service principal)
       group_id: groupId, // ID of the parent group
+    },
+  };
+}
+
+/**
+ * Normalize Group Member Removal
+ *
+ * Represents a member removed from a group (from groups/delta members@delta with
+ * @removed). Uses the same composite ID as the add record and populates
+ * remove_member_ids, which the initial domain mapping maps to the object_member
+ * remove_member_ids field so DevRev removes the user from the group. member_id is
+ * retained because the object_member mapping also expects the relationship member.
+ *
+ * @param memberId - ID of the member that left the group
+ * @param groupId - The group ID the member was removed from
+ * @param modifiedDate - Time of the change (sync time)
+ */
+export function normalizeGroupMemberRemoval(
+  memberId: string,
+  groupId: string,
+  modifiedDate: string
+): NormalizedItem {
+  return {
+    id: `${groupId}_${memberId}`,
+    created_date: FALLBACK_DATE,
+    modified_date: modifiedDate,
+    data: {
+      member_id: memberId,
+      group_id: groupId,
+      remove_member_ids: [memberId],
     },
   };
 }

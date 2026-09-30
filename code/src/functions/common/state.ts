@@ -9,6 +9,13 @@ export interface EntityStateWithIds extends EntityState {
   ids: string[];
 }
 
+// Groups additionally record whether this run consumes a groups delta (which
+// carries membership adds/removals via members@delta) so group membership
+// extraction can skip the full per-group member listing.
+export interface GroupsState extends EntityStateWithIds {
+  usedDelta?: boolean;
+}
+
 export interface NestedEntityState {
   completed: boolean;
   currentParentIndex: number;
@@ -28,7 +35,7 @@ export interface DevicesState extends EntityState {
 
 export interface State {
   users: EntityStateWithIds;
-  groups: EntityStateWithIds;
+  groups: GroupsState;
   groupMembers: NestedEntityState;
   directoryRoles: EntityStateWithIds;
   roleMembers: NestedEntityState;

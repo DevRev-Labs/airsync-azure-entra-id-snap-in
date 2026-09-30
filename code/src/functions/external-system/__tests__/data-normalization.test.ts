@@ -19,6 +19,7 @@ import {
   normalizeUser,
   normalizeGroup,
   normalizeGroupMember,
+  normalizeGroupMemberRemoval,
   normalizeDirectoryRole,
   normalizeApplication,
   normalizeServicePrincipal,
@@ -398,6 +399,53 @@ describe('normalizeGroupMember', () => {
     expect(result.id).toBe('group-123_sp-111');
     expect(result.data.member_id).toBe('sp-111');
     expect(result.data.group_id).toBe('group-123');
+  });
+});
+
+describe('incremental modified_date and membership removal', () => {
+  const syncTime = '2026-09-30T10:00:00.000Z';
+
+  it('normalizeUser uses provided modified date so delta updates are applied', () => {
+    const user = { id: 'u1', displayName: 'New Name', createdDateTime: '2020-01-01T00:00:00Z' } as EntraUser;
+    const result = normalizeUser(user, syncTime);
+    expect(result.modified_date).toBe(syncTime);
+    expect(result.created_date).toBe('2020-01-01T00:00:00Z');
+    expect(result.data.display_name).toBe('New Name');
+    expect(normalizeUser(user).modified_date).toBe('2020-01-01T00:00:00Z');
+  });
+
+  it('normalizeGroup uses provided modified date and carries name/description', () => {
+    const group = {
+      id: 'g1', displayName: 'Renamed', description: 'New desc', createdDateTime: '2020-01-01T00:00:00Z',
+    } as EntraGroup;
+    const result = normalizeGroup(group, syncTime);
+    expect(result.modified_date).toBe(syncTime);
+    expect(result.data.name).toBe('Renamed');
+    expect(result.data.description).toBe('New desc');
+    expect(normalizeGroup(group).modified_date).toBe('2020-01-01T00:00:00Z');
+  });
+
+  it('normalizeGroupMemberRemoval emits remove_member_ids with the same composite id', () => {
+    const result = normalizeGroupMemberRemoval('user-1', 'group-1', syncTime);
+    expect(result.id).toBe(normalizeGroupMember({ id: 'user-1' }, 'group-1').id);
+    expect(result.data).toEqual({
+      member_id: 'user-1',
+      group_id: 'group-1',
+      remove_member_ids: ['user-1'],
+    });
+    expect(result.modified_date).toBe(syncTime);
+  });
+
+  it('normalizeGroupMember accepts a modified date', () => {
+    expect(normalizeGroupMember({ id: 'user-1' }, 'group-1', syncTime).modified_date).toBe(syncTime);
+  });
+
+  it('EDM and IDM define and map remove_member_ids for group_members', () => {
+    const edm = require('../external_domain_metadata.json');
+    const idm = require('../initial_domain_mapping.json');
+    expect(edm.record_types.group_members.fields.remove_member_ids.collection).toBeDefined();
+    const shard = JSON.stringify(idm).match(/"remove_member_ids":\{"forward":true,"primary_external_field":"remove_member_ids"/);
+    expect(shard).not.toBeNull();
   });
 });
 

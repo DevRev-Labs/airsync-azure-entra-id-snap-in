@@ -207,6 +207,14 @@ export async function acquireAccessToken(
  * const users = await client.listUsersPage();
  * ```
  */
+/** Properties requested from users/delta so profile/name changes are tracked. */
+export const USER_DELTA_SELECT =
+  'id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,accountEnabled,userType,createdDateTime';
+
+/** Properties requested from groups/delta; "members" enables members@delta. */
+export const GROUP_DELTA_SELECT =
+  'id,displayName,description,mail,groupTypes,securityEnabled,mailEnabled,createdDateTime,members';
+
 export class EntraIDClient {
   // Private axios instance configured with base URL, auth, and timeouts
   private client: AxiosInstance;
@@ -428,7 +436,8 @@ export class EntraIDClient {
    */
   async getUsersDelta(deltaLink?: string): Promise<GraphPagedResponse<EntraUser>> {
     // Use provided deltaLink or construct initial delta query URL
-    const url = deltaLink || `/users/delta?$top=${PAGE_SIZE}`;
+    // $select ensures name/profile properties are present in delta results.
+    const url = deltaLink || `/users/delta?$top=${PAGE_SIZE}&$select=${USER_DELTA_SELECT}`;
 
     // Execute GET request and return delta response
     return this.get<GraphPagedResponse<EntraUser>>(url);
@@ -477,7 +486,9 @@ export class EntraIDClient {
    */
   async getGroupsDelta(deltaLink?: string): Promise<GraphPagedResponse<EntraGroup>> {
     // Use provided deltaLink or construct initial delta query URL
-    const url = deltaLink || `/groups/delta?$top=${PAGE_SIZE}`;
+    // $select includes "members" so membership additions/removals are reported
+    // as members@delta (with @removed for removed members).
+    const url = deltaLink || `/groups/delta?$top=${PAGE_SIZE}&$select=${GROUP_DELTA_SELECT}`;
 
     // Execute GET request and return delta response
     return this.get<GraphPagedResponse<EntraGroup>>(url);

@@ -35,6 +35,15 @@ export interface EntraGroup {
   mailEnabled: boolean | null;
   createdDateTime: string | null;
   '@removed'?: { reason: string };
+  /** Membership changes returned by groups/delta when $select includes "members". */
+  'members@delta'?: EntraGroupMemberDelta[];
+}
+
+/** Entry of a group's members@delta array; carries @removed when the member left the group. */
+export interface EntraGroupMemberDelta {
+  id: string;
+  '@odata.type'?: string;
+  '@removed'?: { reason: string };
 }
 
 export interface EntraDirectoryRoleMember {

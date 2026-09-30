@@ -115,7 +115,7 @@
  */
 
 // Import DevRev Airdrop framework types and functions
-import { EventType, ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+import { EventType, ExtractorEventType, NormalizedItem, processTask, WorkerAdapter } from '@devrev/ts-adaas';
 
 // Import state management types and initializer
 import {
@@ -144,6 +144,7 @@ import {
   normalizeDirectoryRole,
   normalizeGroup,
   normalizeGroupMember,
+  normalizeGroupMemberRemoval,
   normalizeOrgContact,
   normalizeServicePrincipal,
   normalizeUser,
@@ -245,6 +246,10 @@ processTask({
       // Incremental syncs use delta queries to fetch only changed entities
 
       const isIncremental = adapter.event.payload.event_context.mode !== 'INITIAL';
+
+      // Graph does not expose a modified timestamp. Records returned by delta
+      // queries are stamped with the run time so DevRev applies them as updates.
+      const syncTimestamp = new Date().toISOString();
 
       // ─────────────────────────────────────────────────────────────────────────
       // STEP 4: RESET STATE FOR INCREMENTAL SYNC (IF APPLICABLE)
@@ -356,6 +361,9 @@ processTask({
           // Restore pagination token from previous invocation (if any)
           let nextLink = adapter.state.users.nextLink;
 
+          // Stored delta link is only used for incremental syncs
+          const usersDeltaStart = isIncremental ? adapter.state.deltaLinks.users : undefined;
+
           // Variable to hold current page of results
           let page;
 
@@ -381,14 +389,12 @@ processTask({
             // Fetch page of users (delta query or full list)
             // ───────────────────────────────────────────────────────────────────
 
-            if (isIncremental && adapter.state.deltaLinks.users) {
-              // INCREMENTAL SYNC: Use delta query to fetch only changed users
-              // Delta link from previous sync OR pagination nextLink if continuing
-              page = await client.getUsersDelta(nextLink || adapter.state.deltaLinks.users);
-            } else {
-              // FULL SYNC: Fetch all users using standard list endpoint
-              page = await client.listUsersPage(nextLink);
-            }
+            // Always use the delta endpoint: the plain list endpoint never returns
+            // an @odata.deltaLink, so incremental syncs would never get a baseline.
+            // INITIAL (or no stored link): fresh delta round returns all users + a deltaLink.
+            // INCREMENTAL with stored link: returns only changed users.
+            // nextLink (if resuming/paging) takes precedence.
+            page = await client.getUsersDelta(nextLink || usersDeltaStart);
 
             // ───────────────────────────────────────────────────────────────────
             // Check for timeout after API call
@@ -408,7 +414,7 @@ processTask({
             const activeItems = page.value.filter((u) => !u['@removed']);
 
             // Transform raw Graph API users into DevRev format
-            const normalized = activeItems.map((u) => normalizeUser(u));
+            const normalized = activeItems.map((u) => normalizeUser(u, isIncremental ? syncTimestamp : undefined));
 
             // Push normalized users to DevRev data repository
             await adapter.getRepo(ENTITY_NAMES.USERS)?.push(normalized);
@@ -494,14 +500,14 @@ processTask({
 
             // Clear delta link - next invocation will do full sync
             adapter.state.deltaLinks.users = undefined;
+            adapter.state.users = {
+              completed: false,
+              extractedCount: 0,
+              ids: [],
+            };
 
-            // Mark entity as incomplete so it gets re-extracted
-            adapter.state.users.completed = false;
-
-            // Clear pagination token to start from beginning
-            adapter.state.users.nextLink = undefined;
-
-            // Exit - entity will be re-extracted with full sync on next invocation
+            // Persist the reset and continue extraction from a fresh delta round.
+            await adapter.emit(ExtractorEventType.DataExtractionProgress);
             return;
           }
 
@@ -539,20 +545,46 @@ processTask({
           let nextLink = adapter.state.groups.nextLink;
           let page;
           const collectedIds: string[] = [...adapter.state.groups.ids];
+
+          // Decide once per run whether groups come from a stored delta link. The
+          // decision is persisted so resumed invocations (and the group members
+          // step) see the same value even after the delta link is replaced.
+          const groupsDeltaStart = isIncremental ? adapter.state.deltaLinks.groups : undefined;
+          if (adapter.state.groups.usedDelta === undefined) {
+            adapter.state.groups.usedDelta = !!groupsDeltaStart;
+          }
+          const groupsUsedDelta = adapter.state.groups.usedDelta;
           do {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-            if (isIncremental && adapter.state.deltaLinks.groups) {
-              page = await client.getGroupsDelta(nextLink || adapter.state.deltaLinks.groups);
-            } else {
-              page = await client.listGroupsPage(nextLink);
-            }
+            // Always use delta so a deltaLink (with members@delta tracking) is obtained.
+            page = await client.getGroupsDelta(nextLink || groupsDeltaStart);
 
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
             const activeItems = page.value.filter((g) => !g['@removed']);
-            const normalized = activeItems.map((g) => normalizeGroup(g));
+            const normalized = activeItems.map((g) => normalizeGroup(g, isIncremental ? syncTimestamp : undefined));
             await adapter.getRepo(ENTITY_NAMES.GROUPS)?.push(normalized);
+
+            // Membership adds/removals from the groups delta (incremental only).
+            // A full member listing runs later when the delta is not used.
+            if (groupsUsedDelta) {
+              const memberRecords: NormalizedItem[] = [];
+              for (const g of activeItems) {
+                for (const m of g['members@delta'] ?? []) {
+                  // The object_member mapping references users. Ignore nested groups,
+                  // service principals, and devices to avoid dangling references.
+                  if (m['@odata.type'] && m['@odata.type'] !== '#microsoft.graph.user') continue;
+                  memberRecords.push(
+                    m['@removed']
+                      ? normalizeGroupMemberRemoval(m.id, g.id, syncTimestamp)
+                      : normalizeGroupMember(m, g.id, syncTimestamp)
+                  );
+                }
+              }
+              await adapter.getRepo(ENTITY_NAMES.GROUP_MEMBERS)?.push(memberRecords);
+              adapter.state.groupMembers.extractedCount += memberRecords.length;
+            }
             collectedIds.push(...activeItems.map((g) => g.id));
 
             adapter.state.groups.ids = collectedIds;
@@ -566,6 +598,10 @@ processTask({
           }
           adapter.state.groups.completed = true;
           adapter.state.groups.nextLink = undefined;
+          // Membership changes were already emitted from members@delta; no full listing needed.
+          if (groupsUsedDelta) {
+            adapter.state.groupMembers.completed = true;
+          }
           console.log(`[data-extraction] Groups extracted: ${adapter.state.groups.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
@@ -579,8 +615,17 @@ processTask({
           }
           if (isDeltaExpiredError(error)) {
             adapter.state.deltaLinks.groups = undefined;
-            adapter.state.groups.completed = false;
-            adapter.state.groups.nextLink = undefined;
+            adapter.state.groups = {
+              completed: false,
+              extractedCount: 0,
+              ids: [],
+            };
+            adapter.state.groupMembers = {
+              completed: false,
+              currentParentIndex: 0,
+              extractedCount: 0,
+            };
+            await adapter.emit(ExtractorEventType.DataExtractionProgress);
             return;
           }
           if (isForbiddenError(error)) {
@@ -619,7 +664,9 @@ processTask({
 
               if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-              const normalized = page.value.map((m) => normalizeGroupMember(m, groupId));
+              const normalized = page.value
+                .filter((m) => !m['@odata.type'] || m['@odata.type'] === '#microsoft.graph.user')
+                .map((m) => normalizeGroupMember(m, groupId));
               await adapter.getRepo(ENTITY_NAMES.GROUP_MEMBERS)?.push(normalized);
 
               adapter.state.groupMembers.extractedCount += normalized.length;
