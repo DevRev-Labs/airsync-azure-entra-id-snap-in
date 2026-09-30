@@ -487,6 +487,32 @@ describe('EntraIDClient.getUsersDelta', () => {
     expect(calledUrl).toMatch(/\$select=[^&]*\bdisplayName\b/);
   });
 
+  it('should fetch the current complete profile for a delta user', async () => {
+    const user = {
+      id: 'user-changed',
+      displayName: 'Current Display Name',
+      mail: 'changed@contoso.com',
+      userPrincipalName: 'changed@contoso.com',
+      givenName: 'Current',
+      surname: 'Name',
+      jobTitle: null,
+      department: null,
+      officeLocation: null,
+      mobilePhone: null,
+      businessPhones: [],
+      accountEnabled: true,
+      userType: 'Member',
+      createdDateTime: '2024-03-15T10:00:00Z',
+    } as EntraUser;
+    mockAxiosInstance.get.mockResolvedValueOnce({ data: user });
+
+    await expect(client.getUser('user-changed')).resolves.toEqual(user);
+    expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+      expect.stringContaining('/users/user-changed?$select='),
+      { params: undefined }
+    );
+  });
+
   it('should get incremental users delta with deltaLink', async () => {
     const deltaLink = 'https://graph.microsoft.com/v1.0/users/delta?$deltatoken=xyz789';
     const mockResponse: GraphPagedResponse<EntraUser> = {

@@ -443,6 +443,18 @@ export class EntraIDClient {
     return this.get<GraphPagedResponse<EntraUser>>(url);
   }
 
+  /** Fetch the current complete mapped profile for a user returned by delta. */
+  async getUser(userId: string): Promise<EntraUser | null> {
+    try {
+      return await this.get<EntraUser>(
+        `/users/${encodeURIComponent(userId)}?$select=${USER_DELTA_SELECT}`
+      );
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) return null;
+      throw error;
+    }
+  }
+
   /**
    * List Groups - Paginated
    *

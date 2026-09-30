@@ -67,6 +67,11 @@ export interface State {
     orgContacts?: string;
   };
 
+  // Connector-owned migration marker. Incrementing this forces one full user
+  // delta round so existing users are re-normalized after name logic changes.
+  userNormalizationVersion?: number;
+  userDeltaInitialized?: boolean;
+
   // Connector-owned time-window cursors for endpoints that don't support
   // delta queries (audit logs, sign-in logs). lastSyncStarted and
   // lastSuccessfulSyncStarted are SDK-managed (see @devrev/ts-adaas SdkState)
