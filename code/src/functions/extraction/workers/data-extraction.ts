@@ -139,6 +139,11 @@ import {
   wait,
 } from '../../common/utils';
 import {
+  accumulateAuditOverlay,
+  AuditOverlay,
+  overlayAuditedUserFields,
+} from '../../external-system/audit-overlay';
+import {
   normalizeApplication,
   normalizeDevice,
   normalizeDirectoryRole,
@@ -163,6 +168,16 @@ import { acquireAccessToken, EntraIDClient } from '../../external-system/entra-i
 import { EntraUser } from '../../external-system/types';
 
 const USER_NORMALIZATION_VERSION = 3;
+
+/**
+ * Graph directory audit ingestion can lag the directory write by several
+ * minutes. Subtract this from `lastSuccessfulSyncStarted` when querying
+ * "Update user" audits so a change that lands just before the previous run
+ * finished (or whose audit record appears late) is still visible on the next
+ * incremental. Without this lookback, true delta may return 0 and the audit
+ * fallback also misses the event once the SDK advances the watermark.
+ */
+const USER_AUDIT_LOOKBACK_MS = 15 * 60 * 1000;
 
 /** Return a field's length for diagnostics without logging its PII value. */
 function profileValueLength(value: unknown): number {
@@ -394,17 +409,32 @@ processTask({
           const collectedIds: string[] = [...adapter.state.users.ids];
           const processedUserIds = new Set<string>();
           const auditedUserIds = new Set<string>();
+          // Maps a user ID to the audited new-values for profile fields that
+          // DevRev maps onto devu.  Used to patch a stale GET /users/{id}
+          // response before normalization so the edit is never silently dropped.
+          const auditOverlayMap = new Map<string, AuditOverlay>();
 
           // Read user audit events before hydration. Microsoft Graph's directory
           // read model can lag a successful audit event briefly, so wait until the
           // newest event is at least one minute old before fetching current profiles.
-          const auditStart = adapter.state.lastSuccessfulSyncStarted;
+          // Also apply USER_AUDIT_LOOKBACK_MS: audit records themselves often appear
+          // in the API a few minutes after activityDateTime, and lastSuccessfulSyncStarted
+          // advances at the end of each run — without lookback the next incremental
+          // permanently skips an Update-user that delta also omitted.
+          const auditWatermark = adapter.state.lastSuccessfulSyncStarted;
+          const auditStart = auditWatermark
+            ? new Date(
+                Math.max(0, Date.parse(auditWatermark) - USER_AUDIT_LOOKBACK_MS)
+              ).toISOString()
+            : undefined;
           if (isIncremental && auditStart) {
             try {
               let auditNextLink: string | undefined;
               let latestUserAuditMs = 0;
+              let rawAuditCount = 0;
               do {
                 const auditPage = await client.listDirectoryAudits(auditStart, auditNextLink);
+                rawAuditCount += auditPage.value.length;
                 for (const audit of auditPage.value) {
                   if (
                     audit.result?.toLowerCase() !== 'success' ||
@@ -419,6 +449,21 @@ processTask({
                         latestUserAuditMs,
                         Date.parse(audit.activityDateTime) || 0
                       );
+                      // Collect modifiedProperties so a stale GET /users/{id}
+                      // can be patched with the audited new value before
+                      // normalizeUser is called. The API is ordered newest-first,
+                      // so values already collected for a field must win over
+                      // values from older events and subsequent pages.
+                      const props = target.modifiedProperties;
+                      if (Array.isArray(props) && props.length > 0) {
+                        const existing = auditOverlayMap.get(target.id) ?? {};
+                        const updated = accumulateAuditOverlay(
+                          props as Array<Record<string, unknown>>,
+                          existing,
+                          false
+                        );
+                        auditOverlayMap.set(target.id, updated);
+                      }
                     }
                   }
                 }
@@ -431,7 +476,11 @@ processTask({
               console.log(
                 JSON.stringify({
                   event: 'entra_user_audit_preflight',
+                  audit_watermark: auditWatermark,
+                  audit_start: auditStart,
+                  raw_audits: rawAuditCount,
                   audited: auditedUserIds.size,
+                  overlay_users: auditOverlayMap.size,
                   consistency_delay_ms: consistencyDelayMs,
                 })
               );
@@ -535,7 +584,18 @@ processTask({
                   upn_present: Boolean(hydratedUser.userPrincipalName?.trim()),
                 })
               );
-              usersToNormalize.push(hydratedUser);
+
+              // If the directory read is behind the audit, patch the hydrated
+              // object with the audited new values before normalization so
+              // the correct profile is stored.  Without this, the stale read
+              // is stamped with the current modified_date and both the delta
+              // cursor and the audit window move past the real edit, making
+              // the change permanent until the next full sync.
+              const deltaOverlay = auditOverlayMap.get(hydratedUser.id);
+              const userToNormalize = deltaOverlay
+                ? overlayAuditedUserFields(hydratedUser, deltaOverlay)
+                : hydratedUser;
+              usersToNormalize.push(userToNormalize);
             }
 
             // Transform raw Graph API users into DevRev format
@@ -596,8 +656,18 @@ processTask({
           const auditFallbackUsers: EntraUser[] = [];
           for (const userId of auditedUserIds) {
             if (processedUserIds.has(userId)) continue;
-            const hydratedUser = await client.getUser(userId);
-            if (hydratedUser) auditFallbackUsers.push(hydratedUser);
+            let hydratedUser = await client.getUser(userId);
+            if (hydratedUser) {
+              // Apply audit overlay: the directory may still be behind for
+              // users that delta omitted (the whole reason this fallback
+              // exists).  The audited modifiedProperties are the only source
+              // that already has the new value in that window.
+              const fallbackOverlay = auditOverlayMap.get(userId);
+              if (fallbackOverlay) {
+                hydratedUser = overlayAuditedUserFields(hydratedUser, fallbackOverlay);
+              }
+              auditFallbackUsers.push(hydratedUser);
+            }
           }
 
           const auditFallbackNormalized = auditFallbackUsers.map((user) =>
