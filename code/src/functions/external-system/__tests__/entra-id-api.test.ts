@@ -482,7 +482,35 @@ describe('EntraIDClient.getUsersDelta', () => {
     const result = await client.getUsersDelta();
 
     expect(result['@odata.deltaLink']).toBeDefined();
-    expect(mockAxiosInstance.get).toHaveBeenCalledWith('/users/delta?$top=999', { params: undefined });
+    const calledUrl = mockAxiosInstance.get.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('/users/delta?$top=999&$select=');
+    expect(calledUrl).toMatch(/\$select=[^&]*\bdisplayName\b/);
+  });
+
+  it('should fetch the current complete profile for a delta user', async () => {
+    const user = {
+      id: 'user-changed',
+      displayName: 'Current Display Name',
+      mail: 'changed@contoso.com',
+      userPrincipalName: 'changed@contoso.com',
+      givenName: 'Current',
+      surname: 'Name',
+      jobTitle: null,
+      department: null,
+      officeLocation: null,
+      mobilePhone: null,
+      businessPhones: [],
+      accountEnabled: true,
+      userType: 'Member',
+      createdDateTime: '2024-03-15T10:00:00Z',
+    } as EntraUser;
+    mockAxiosInstance.get.mockResolvedValueOnce({ data: user });
+
+    await expect(client.getUser('user-changed')).resolves.toEqual(user);
+    expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+      expect.stringContaining('/users/user-changed?$select='),
+      { params: undefined }
+    );
   });
 
   it('should get incremental users delta with deltaLink', async () => {
@@ -593,7 +621,11 @@ describe('EntraIDClient.getGroupsDelta', () => {
     const result = await client.getGroupsDelta();
 
     expect(result['@odata.deltaLink']).toBeDefined();
-    expect(mockAxiosInstance.get).toHaveBeenCalledWith('/groups/delta?$top=999', { params: undefined });
+    const calledUrl = mockAxiosInstance.get.mock.calls[0][0] as string;
+    expect(calledUrl).toContain('/groups/delta?$top=999&$select=');
+    // members must be selected so members@delta (add/remove) is returned
+    expect(calledUrl).toMatch(/\$select=[^&]*\bmembers\b/);
+    expect(calledUrl).toContain('description');
   });
 });
 

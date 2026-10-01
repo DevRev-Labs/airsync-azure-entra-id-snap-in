@@ -19,6 +19,7 @@ import {
   normalizeUser,
   normalizeGroup,
   normalizeGroupMember,
+  normalizeGroupMemberRemoval,
   normalizeDirectoryRole,
   normalizeApplication,
   normalizeServicePrincipal,
@@ -56,8 +57,8 @@ import {
   EntraSignIn,
 } from '../types';
 
-// Fallback date for entities without created/modified timestamps
-const FALLBACK_DATE = new Date(0).toISOString(); // 1970-01-01T00:00:00.000Z
+// Stable sentinel for Graph entities that do not expose timestamps.
+const FALLBACK_DATE = '2000-01-01T00:00:00.000Z';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // TEST SUITE #1: normalizeUser
@@ -98,6 +99,57 @@ describe('normalizeUser', () => {
     expect(result.data.display_name).toBe('John Doe');
     expect(result.data.email).toBe('john.doe@contoso.com');
     expect(result.data.full_name).toBe('John Doe');
+  });
+
+  it('should keep Azure display name and full name semantics distinct', () => {
+    const user = {
+      id: 'user-with-suffix',
+      displayName: 'Golla Hareesh Solution',
+      givenName: 'Hareesh',
+      surname: 'Golla',
+      mail: 'hareesh.golla@outlook.in',
+      userPrincipalName: 'hareesh.golla@outlook.in',
+      createdDateTime: '2026-05-13T08:20:02Z',
+    } as EntraUser;
+
+    const result = normalizeUser(user);
+
+    expect(result.data.display_name).toBe('Golla Hareesh Solution');
+    expect(result.data.full_name).toBe('Hareesh Golla');
+  });
+
+  it('should fall back to the composed full name when displayName is empty', () => {
+    const user = {
+      id: 'user-with-empty-display-name',
+      displayName: '   ',
+      givenName: 'Hareesh',
+      surname: 'Golla',
+      mail: 'hareesh.golla@outlook.in',
+      userPrincipalName: 'hareesh.golla@outlook.in',
+      createdDateTime: '2026-05-13T08:20:02Z',
+    } as EntraUser;
+
+    const result = normalizeUser(user);
+
+    expect(result.data.display_name).toBe('Hareesh Golla');
+    expect(result.data.full_name).toBe('Hareesh Golla');
+  });
+
+  it('should fall back to displayName when Azure first and last names are empty', () => {
+    const user = {
+      id: 'user-with-empty-full-name',
+      displayName: 'Golla Hareesh Solution',
+      givenName: null,
+      surname: null,
+      mail: 'hareesh.golla@outlook.in',
+      userPrincipalName: 'hareesh.golla@outlook.in',
+      createdDateTime: '2026-05-13T08:20:02Z',
+    } as EntraUser;
+
+    const result = normalizeUser(user);
+
+    expect(result.data.display_name).toBe('Golla Hareesh Solution');
+    expect(result.data.full_name).toBe('Golla Hareesh Solution');
   });
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -401,6 +453,53 @@ describe('normalizeGroupMember', () => {
   });
 });
 
+describe('incremental modified_date and membership removal', () => {
+  const syncTime = '2026-09-30T10:00:00.000Z';
+
+  it('normalizeUser uses provided modified date so delta updates are applied', () => {
+    const user = { id: 'u1', displayName: 'New Name', createdDateTime: '2020-01-01T00:00:00Z' } as EntraUser;
+    const result = normalizeUser(user, syncTime);
+    expect(result.modified_date).toBe(syncTime);
+    expect(result.created_date).toBe('2020-01-01T00:00:00Z');
+    expect(result.data.display_name).toBe('New Name');
+    expect(normalizeUser(user).modified_date).toBe('2020-01-01T00:00:00Z');
+  });
+
+  it('normalizeGroup uses provided modified date and carries name/description', () => {
+    const group = {
+      id: 'g1', displayName: 'Renamed', description: 'New desc', createdDateTime: '2020-01-01T00:00:00Z',
+    } as EntraGroup;
+    const result = normalizeGroup(group, syncTime);
+    expect(result.modified_date).toBe(syncTime);
+    expect(result.data.name).toBe('Renamed');
+    expect(result.data.description).toBe('New desc');
+    expect(normalizeGroup(group).modified_date).toBe('2020-01-01T00:00:00Z');
+  });
+
+  it('normalizeGroupMemberRemoval emits remove_member_ids with the same composite id', () => {
+    const result = normalizeGroupMemberRemoval('user-1', 'group-1', syncTime);
+    expect(result.id).toBe(normalizeGroupMember({ id: 'user-1' }, 'group-1').id);
+    expect(result.data).toEqual({
+      member_id: 'user-1',
+      group_id: 'group-1',
+      remove_member_ids: ['user-1'],
+    });
+    expect(result.modified_date).toBe(syncTime);
+  });
+
+  it('normalizeGroupMember accepts a modified date', () => {
+    expect(normalizeGroupMember({ id: 'user-1' }, 'group-1', syncTime).modified_date).toBe(syncTime);
+  });
+
+  it('EDM and IDM define and map remove_member_ids for group_members', () => {
+    const edm = require('../external_domain_metadata.json');
+    const idm = require('../initial_domain_mapping.json');
+    expect(edm.record_types.group_members.fields.remove_member_ids.collection).toBeDefined();
+    const shard = JSON.stringify(idm).match(/"remove_member_ids":\{"forward":true,"primary_external_field":"remove_member_ids"/);
+    expect(shard).not.toBeNull();
+  });
+});
+
 // ══════════════════════════════════════════════════════════════════════════════
 // TEST SUITE #4: normalizeDirectoryRole
 // ══════════════════════════════════════════════════════════════════════════════
@@ -420,6 +519,19 @@ describe('normalizeDirectoryRole', () => {
     expect(result.data.display_name).toBe('Global Administrator');
     expect(result.data.description).toBe('Full access to all administrative features');
     expect(result.data.role_template_id).toBe('template-456');
+  });
+
+  it('should stamp directory role delta updates with the sync time', () => {
+    const role: EntraDirectoryRole = {
+      id: 'role-updated',
+      displayName: 'Renamed Administrator',
+      description: 'Updated role',
+      roleTemplateId: 'template-updated',
+    };
+
+    const result = normalizeDirectoryRole(role, '2026-09-30T10:00:00Z');
+
+    expect(result.modified_date).toBe('2026-09-30T10:00:00Z');
   });
 
   it('should handle role with null fields', () => {
@@ -463,6 +575,22 @@ describe('normalizeApplication', () => {
     expect(result.data.publisher_domain).toBe('contoso.com');
     // identifier_uris is now a comma-separated string instead of array
     expect(result.data.identifier_uris).toBe('https://contoso.com/app');
+  });
+
+  it('should stamp application delta updates with the sync time', () => {
+    const app = {
+      id: 'app-updated',
+      appId: 'client-updated',
+      displayName: 'Renamed Application',
+      signInAudience: 'AzureADMyOrg',
+      createdDateTime: '2024-01-20T12:00:00Z',
+      publisherDomain: 'contoso.com',
+      identifierUris: [],
+    } as EntraApplication;
+
+    expect(normalizeApplication(app, '2026-09-30T10:00:00Z').modified_date).toBe(
+      '2026-09-30T10:00:00Z'
+    );
   });
 
   it('should handle application with null fields', () => {
@@ -511,6 +639,19 @@ describe('normalizeServicePrincipal', () => {
     expect(result.data.service_principal_type).toBe('Application');
     expect(result.data.account_enabled).toBe(true);
     expect(result.data.app_owner_organization_id).toBe('org-789');
+  });
+
+  it('should stamp service principal delta updates with the sync time', () => {
+    const sp = {
+      id: 'sp-updated',
+      appId: 'app-updated',
+      displayName: 'Renamed Service Principal',
+      createdDateTime: '2024-02-01T10:00:00Z',
+    } as EntraServicePrincipal;
+
+    expect(normalizeServicePrincipal(sp, '2026-09-30T10:00:00Z').modified_date).toBe(
+      '2026-09-30T10:00:00Z'
+    );
   });
 
   it('should handle service principal with null created date', () => {
@@ -572,6 +713,19 @@ describe('normalizeDevice', () => {
     expect(result.data.registered_owner_display_name).toBe('Device Owner');
   });
 
+  it('should stamp device delta updates with the sync time', () => {
+    const device = {
+      id: 'device-updated',
+      displayName: 'Renamed Device',
+      registrationDateTime: '2024-01-15T09:00:00Z',
+      approximateLastSignInDateTime: '2024-03-15T14:30:00Z',
+    } as EntraDevice;
+
+    expect(normalizeDevice(device, '2026-09-30T10:00:00Z').modified_date).toBe(
+      '2026-09-30T10:00:00Z'
+    );
+  });
+
   it('should handle device without owner information', () => {
     const device: EntraDevice = {
       id: 'device-456',
@@ -616,6 +770,20 @@ describe('normalizeOrgContact', () => {
     expect(result.data.display_name).toBe('External Partner');
     expect(result.data.email).toBe('partner@external.com');
     expect(result.data.full_name).toBe('John Partner');
+  });
+
+  it('should stamp organizational contact delta updates with the sync time', () => {
+    const contact = {
+      id: 'contact-updated',
+      displayName: 'Renamed Contact',
+      givenName: 'Renamed',
+      surname: 'Contact',
+      createdDateTime: '2024-01-10T08:00:00Z',
+    } as EntraOrgContact;
+
+    expect(normalizeOrgContact(contact, '2026-09-30T10:00:00Z').modified_date).toBe(
+      '2026-09-30T10:00:00Z'
+    );
   });
 
   it('should handle contact with null fields', () => {
@@ -759,7 +927,8 @@ describe('Edge Cases', () => {
 
     const result = normalizeUser(user);
 
-    expect(result.data.display_name).toBe('');
+    expect(result.data.display_name).toBeNull();
+    expect(result.data.full_name).toBeNull();
     expect(result.data.email).toBe('user@contoso.com'); // Falls back to UPN
   });
 

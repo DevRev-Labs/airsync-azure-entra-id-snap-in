@@ -77,10 +77,11 @@ interface NormalizedItem {
  * Fallback Date Constant
  *
  * Used when Microsoft Graph API doesn't provide a created/modified date.
- * Set to Unix epoch (January 1, 1970) to indicate "unknown" date.
- * ISO 8601 format: "1970-01-01T00:00:00.000Z"
+ * AirSync requires both envelope dates. This fixed non-epoch sentinel keeps the
+ * record version stable across runs; using the invocation time here would make
+ * unchanged records appear updated on every incremental sync.
  */
-const FALLBACK_DATE = new Date(0).toISOString();
+const FALLBACK_DATE = '2000-01-01T00:00:00.000Z';
 
 /**
  * Azure Entra Admin Portal Base URL
@@ -122,15 +123,24 @@ const ENTRA_ADMIN_URL = 'https://entra.microsoft.com';
  * };
  * const normalized = normalizeUser(rawUser);
  */
-export function normalizeUser(user: EntraUser): NormalizedItem {
-  // Construct full name from first and last name, filter out null/undefined values
-  const fullName = [user.givenName, user.surname].filter(Boolean).join(' ') || null;
+export function normalizeUser(user: EntraUser, syncDate?: string): NormalizedItem {
+  // Keep Azure's display name and full name semantics distinct. Microsoft Graph
+  // exposes the full name as givenName + surname rather than a single field.
+  // If either representation is empty, use the other as a fallback so DevRev
+  // never receives a blank name when Azure provides one.
+  const composedFullName = [user.givenName, user.surname]
+    .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+    .map((name) => name.trim())
+    .join(' ');
+  const azureDisplayName = user.displayName?.trim() || '';
+  const displayName = azureDisplayName || composedFullName || null;
+  const fullName = composedFullName || azureDisplayName || null;
 
   // Initialize data object with standard user fields
   const data: Record<string, unknown> = {
-    display_name: user.displayName, // User's display name
+    display_name: displayName,
     email: user.mail || user.userPrincipalName, // Prefer primary email, fallback to UPN
-    full_name: fullName, // Constructed full name or null
+    full_name: fullName,
   };
 
   // Dynamically include all custom extension attributes
@@ -146,8 +156,10 @@ export function normalizeUser(user: EntraUser): NormalizedItem {
   // Return normalized item with standard structure
   return {
     id: user.id, // Unique Azure AD user ID (GUID)
-    created_date: user.createdDateTime || FALLBACK_DATE, // When user was created
-    modified_date: user.createdDateTime || FALLBACK_DATE, // Use creation date (Graph doesn't provide modified date)
+    created_date: user.createdDateTime || syncDate || FALLBACK_DATE,
+    // Graph user objects do not expose modifiedDateTime. Stamp every extracted
+    // user with this run's time so initial and incremental versions are ordered.
+    modified_date: syncDate || user.createdDateTime || FALLBACK_DATE,
     data, // All user data fields
   };
 }
@@ -163,11 +175,11 @@ export function normalizeUser(user: EntraUser): NormalizedItem {
  * @param group - Raw group object from Microsoft Graph /groups endpoint
  * @returns Normalized item with group name, description, and portal link
  */
-export function normalizeGroup(group: EntraGroup): NormalizedItem {
+export function normalizeGroup(group: EntraGroup, modifiedDate?: string): NormalizedItem {
   return {
     id: group.id, // Unique Azure AD group ID (GUID)
     created_date: group.createdDateTime || FALLBACK_DATE, // When group was created
-    modified_date: group.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
+    modified_date: modifiedDate || group.createdDateTime || FALLBACK_DATE, // Sync time for delta updates, else creation date
     data: {
       name: group.displayName, // Group display name
       description: group.description ?? null, // Group description (may be null)
@@ -191,17 +203,48 @@ export function normalizeGroup(group: EntraGroup): NormalizedItem {
  */
 export function normalizeGroupMember(
   member: EntraDirectoryRoleMember,
-  groupId: string
+  groupId: string,
+  modifiedDate?: string
 ): NormalizedItem {
   return {
     // Composite ID ensures uniqueness: "groupId_memberId" (underscore separator)
     id: `${groupId}_${member.id}`,
     // Graph API doesn't provide membership timestamps
     created_date: FALLBACK_DATE,
-    modified_date: FALLBACK_DATE,
+    modified_date: modifiedDate || FALLBACK_DATE,
     data: {
       member_id: member.id, // ID of the member (user/group/service principal)
       group_id: groupId, // ID of the parent group
+    },
+  };
+}
+
+/**
+ * Normalize Group Member Removal
+ *
+ * Represents a member removed from a group (from groups/delta members@delta with
+ * @removed). Uses the same composite ID as the add record and populates
+ * remove_member_ids, which the initial domain mapping maps to the object_member
+ * remove_member_ids field so DevRev removes the user from the group. member_id is
+ * retained because the object_member mapping also expects the relationship member.
+ *
+ * @param memberId - ID of the member that left the group
+ * @param groupId - The group ID the member was removed from
+ * @param modifiedDate - Time of the change (sync time)
+ */
+export function normalizeGroupMemberRemoval(
+  memberId: string,
+  groupId: string,
+  modifiedDate: string
+): NormalizedItem {
+  return {
+    id: `${groupId}_${memberId}`,
+    created_date: FALLBACK_DATE,
+    modified_date: modifiedDate,
+    data: {
+      member_id: memberId,
+      group_id: groupId,
+      remove_member_ids: [memberId],
     },
   };
 }
@@ -219,12 +262,12 @@ export function normalizeGroupMember(
  * @param role - Raw role object from Microsoft Graph /directoryRoles endpoint
  * @returns Normalized item with role name, description, template ID, and portal link
  */
-export function normalizeDirectoryRole(role: EntraDirectoryRole): NormalizedItem {
+export function normalizeDirectoryRole(role: EntraDirectoryRole, modifiedDate?: string): NormalizedItem {
   return {
     id: role.id, // Unique role instance ID (GUID)
     // Directory roles don't have creation timestamps
-    created_date: FALLBACK_DATE,
-    modified_date: FALLBACK_DATE,
+    created_date: modifiedDate || FALLBACK_DATE,
+    modified_date: modifiedDate || FALLBACK_DATE,
     data: {
       name: role.displayName, // Role display name (e.g., "Global Administrator") - legacy field
       display_name: role.displayName, // Role display name
@@ -252,11 +295,11 @@ export function normalizeDirectoryRole(role: EntraDirectoryRole): NormalizedItem
  * @param app - Raw application object from Microsoft Graph /applications endpoint
  * @returns Normalized item with app details and portal link
  */
-export function normalizeApplication(app: EntraApplication): NormalizedItem {
+export function normalizeApplication(app: EntraApplication, modifiedDate?: string): NormalizedItem {
   return {
     id: app.id, // Unique application object ID (GUID)
     created_date: app.createdDateTime || FALLBACK_DATE, // When app was registered
-    modified_date: app.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
+    modified_date: modifiedDate || app.createdDateTime || FALLBACK_DATE,
     data: {
       display_name: app.displayName, // Application display name
       app_id: app.appId, // Application (Client) ID - immutable identifier
@@ -287,11 +330,11 @@ export function normalizeApplication(app: EntraApplication): NormalizedItem {
  * @param sp - Raw service principal object from Microsoft Graph /servicePrincipals endpoint
  * @returns Normalized item with service principal details and portal link
  */
-export function normalizeServicePrincipal(sp: EntraServicePrincipal): NormalizedItem {
+export function normalizeServicePrincipal(sp: EntraServicePrincipal, modifiedDate?: string): NormalizedItem {
   return {
     id: sp.id, // Unique service principal object ID (GUID)
     created_date: sp.createdDateTime || FALLBACK_DATE, // When service principal was created
-    modified_date: sp.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
+    modified_date: modifiedDate || sp.createdDateTime || FALLBACK_DATE,
     data: {
       display_name: sp.displayName, // Service principal display name
       app_id: sp.appId, // Associated application (client) ID
@@ -322,12 +365,13 @@ export function normalizeServicePrincipal(sp: EntraServicePrincipal): Normalized
  * @param device - Raw device object from Microsoft Graph /devices endpoint
  * @returns Normalized item with device details including owner information
  */
-export function normalizeDevice(device: EntraDevice): NormalizedItem {
+export function normalizeDevice(device: EntraDevice, modifiedDate?: string): NormalizedItem {
   return {
     id: device.id, // Unique device object ID (GUID)
     created_date: device.registrationDateTime || FALLBACK_DATE, // When device was registered
     // Use last sign-in as modified date, fallback to registration date
-    modified_date: device.approximateLastSignInDateTime || device.registrationDateTime || FALLBACK_DATE,
+    modified_date:
+      modifiedDate || device.approximateLastSignInDateTime || device.registrationDateTime || FALLBACK_DATE,
     data: {
       display_name: device.displayName, // Device display name
       operating_system: device.operatingSystem, // OS type (e.g., "Windows", "iOS")
@@ -361,14 +405,14 @@ export function normalizeDevice(device: EntraDevice): NormalizedItem {
  * @param contact - Raw contact object from Microsoft Graph /contacts endpoint
  * @returns Normalized item with contact details
  */
-export function normalizeOrgContact(contact: EntraOrgContact): NormalizedItem {
+export function normalizeOrgContact(contact: EntraOrgContact, modifiedDate?: string): NormalizedItem {
   // Construct full name from first and last name, filter out null values
   const fullName = [contact.givenName, contact.surname].filter(Boolean).join(' ') || null;
 
   return {
     id: contact.id, // Unique contact object ID (GUID)
     created_date: contact.createdDateTime || FALLBACK_DATE, // When contact was created
-    modified_date: contact.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
+    modified_date: modifiedDate || contact.createdDateTime || FALLBACK_DATE,
     data: {
       display_name: contact.displayName, // Contact display name
       email: contact.mail ?? null, // Contact email address

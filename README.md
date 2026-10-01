@@ -64,6 +64,7 @@ airsync-azure-entra-id-snap-in/
 ├── manifest.yaml                       # DevRev snap-in configuration
 ├── README.md                           # This file
 ├── TECHNICAL_DESIGN_DOC.md             # Detailed technical design
+├── learnings.md                        # Connector learnings, including incremental-sync pitfalls
 ├── SECURITY.md                         # Security best practices and vulnerability protection
 ├── PERFORMANCE.md                      # Performance optimization guidelines
 │

@@ -115,7 +115,7 @@
  */
 
 // Import DevRev Airdrop framework types and functions
-import { EventType, ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+import { EventType, ExtractorEventType, NormalizedItem, processTask, WorkerAdapter } from '@devrev/ts-adaas';
 
 // Import state management types and initializer
 import {
@@ -139,11 +139,17 @@ import {
   wait,
 } from '../../common/utils';
 import {
+  accumulateAuditOverlay,
+  AuditOverlay,
+  overlayAuditedUserFields,
+} from '../../external-system/audit-overlay';
+import {
   normalizeApplication,
   normalizeDevice,
   normalizeDirectoryRole,
   normalizeGroup,
   normalizeGroupMember,
+  normalizeGroupMemberRemoval,
   normalizeOrgContact,
   normalizeServicePrincipal,
   normalizeUser,
@@ -159,6 +165,24 @@ import {
   normalizeSignInLog,
 } from '../../external-system/data-normalization';
 import { acquireAccessToken, EntraIDClient } from '../../external-system/entra-id-api';
+import { EntraUser } from '../../external-system/types';
+
+const USER_NORMALIZATION_VERSION = 3;
+
+/**
+ * Graph directory audit ingestion can lag the directory write by several
+ * minutes. Subtract this from `lastSuccessfulSyncStarted` when querying
+ * "Update user" audits so a change that lands just before the previous run
+ * finished (or whose audit record appears late) is still visible on the next
+ * incremental. Without this lookback, true delta may return 0 and the audit
+ * fallback also misses the event once the SDK advances the watermark.
+ */
+const USER_AUDIT_LOOKBACK_MS = 15 * 60 * 1000;
+
+/** Return a field's length for diagnostics without logging its PII value. */
+function profileValueLength(value: unknown): number {
+  return typeof value === 'string' ? value.length : 0;
+}
 
 // Process-level crash instrumentation (LABS-377).
 // The SDK emits "Worker exited without emitting event" whenever the Node
@@ -245,6 +269,22 @@ processTask({
       // Incremental syncs use delta queries to fetch only changed entities
 
       const isIncremental = adapter.event.payload.event_context.mode !== 'INITIAL';
+
+      // Graph does not expose a modified timestamp. Records returned by delta
+      // queries are stamped with the run time so DevRev applies them as updates.
+      const syncTimestamp = new Date().toISOString();
+
+      // Re-run a complete users delta round once after user normalization changes.
+      // A regular Graph delta contains only changes after its cursor, so without
+      // this migration existing users would keep their previously normalized names.
+      if (
+        isIncremental &&
+        adapter.state.userNormalizationVersion !== USER_NORMALIZATION_VERSION
+      ) {
+        adapter.state.deltaLinks.users = undefined;
+        adapter.state.userDeltaInitialized = false;
+        adapter.state.userNormalizationVersion = USER_NORMALIZATION_VERSION;
+      }
 
       // ─────────────────────────────────────────────────────────────────────────
       // STEP 4: RESET STATE FOR INCREMENTAL SYNC (IF APPLICABLE)
@@ -356,11 +396,108 @@ processTask({
           // Restore pagination token from previous invocation (if any)
           let nextLink = adapter.state.users.nextLink;
 
+          // Stored delta link is only used for incremental syncs
+          const usersDeltaStart =
+            isIncremental && adapter.state.userDeltaInitialized
+              ? adapter.state.deltaLinks.users
+              : undefined;
+
           // Variable to hold current page of results
           let page;
 
           // Maintain array of all user IDs extracted so far (for membership queries)
           const collectedIds: string[] = [...adapter.state.users.ids];
+          const processedUserIds = new Set<string>();
+          const auditedUserIds = new Set<string>();
+          // Maps a user ID to the audited new-values for profile fields that
+          // DevRev maps onto devu.  Used to patch a stale GET /users/{id}
+          // response before normalization so the edit is never silently dropped.
+          const auditOverlayMap = new Map<string, AuditOverlay>();
+
+          // Read user audit events before hydration. Microsoft Graph's directory
+          // read model can lag a successful audit event briefly, so wait until the
+          // newest event is at least one minute old before fetching current profiles.
+          // Also apply USER_AUDIT_LOOKBACK_MS: audit records themselves often appear
+          // in the API a few minutes after activityDateTime, and lastSuccessfulSyncStarted
+          // advances at the end of each run — without lookback the next incremental
+          // permanently skips an Update-user that delta also omitted.
+          const auditWatermark = adapter.state.lastSuccessfulSyncStarted;
+          const auditStart = auditWatermark
+            ? new Date(
+                Math.max(0, Date.parse(auditWatermark) - USER_AUDIT_LOOKBACK_MS)
+              ).toISOString()
+            : undefined;
+          if (isIncremental && auditStart) {
+            try {
+              let auditNextLink: string | undefined;
+              let latestUserAuditMs = 0;
+              let rawAuditCount = 0;
+              do {
+                const auditPage = await client.listDirectoryAudits(auditStart, auditNextLink);
+                rawAuditCount += auditPage.value.length;
+                for (const audit of auditPage.value) {
+                  if (
+                    audit.result?.toLowerCase() !== 'success' ||
+                    audit.activityDisplayName?.toLowerCase() !== 'update user'
+                  ) {
+                    continue;
+                  }
+                  for (const target of audit.targetResources ?? []) {
+                    if (target.type?.toLowerCase() === 'user' && target.id) {
+                      auditedUserIds.add(target.id);
+                      latestUserAuditMs = Math.max(
+                        latestUserAuditMs,
+                        Date.parse(audit.activityDateTime) || 0
+                      );
+                      // Collect modifiedProperties so a stale GET /users/{id}
+                      // can be patched with the audited new value before
+                      // normalizeUser is called. The API is ordered newest-first,
+                      // so values already collected for a field must win over
+                      // values from older events and subsequent pages.
+                      const props = target.modifiedProperties;
+                      if (Array.isArray(props) && props.length > 0) {
+                        const existing = auditOverlayMap.get(target.id) ?? {};
+                        const updated = accumulateAuditOverlay(
+                          props as Array<Record<string, unknown>>,
+                          existing,
+                          false
+                        );
+                        auditOverlayMap.set(target.id, updated);
+                      }
+                    }
+                  }
+                }
+                auditNextLink = auditPage['@odata.nextLink'];
+              } while (auditNextLink);
+
+              const consistencyDelayMs = latestUserAuditMs
+                ? Math.min(60_000, Math.max(0, 60_000 - (Date.now() - latestUserAuditMs)))
+                : 0;
+              console.log(
+                JSON.stringify({
+                  event: 'entra_user_audit_preflight',
+                  audit_watermark: auditWatermark,
+                  audit_start: auditStart,
+                  raw_audits: rawAuditCount,
+                  audited: auditedUserIds.size,
+                  overlay_users: auditOverlayMap.size,
+                  consistency_delay_ms: consistencyDelayMs,
+                })
+              );
+              if (consistencyDelayMs > 0) await wait(consistencyDelayMs);
+            } catch (auditError) {
+              if (isForbiddenError(auditError)) {
+                console.warn(
+                  JSON.stringify({
+                    event: 'entra_user_audit_fallback_skipped',
+                    reason: 'missing_audit_permission',
+                  })
+                );
+              } else {
+                throw auditError;
+              }
+            }
+          }
 
           // ─────────────────────────────────────────────────────────────────────
           // Pagination Loop - Fetch all pages of users
@@ -381,14 +518,12 @@ processTask({
             // Fetch page of users (delta query or full list)
             // ───────────────────────────────────────────────────────────────────
 
-            if (isIncremental && adapter.state.deltaLinks.users) {
-              // INCREMENTAL SYNC: Use delta query to fetch only changed users
-              // Delta link from previous sync OR pagination nextLink if continuing
-              page = await client.getUsersDelta(nextLink || adapter.state.deltaLinks.users);
-            } else {
-              // FULL SYNC: Fetch all users using standard list endpoint
-              page = await client.listUsersPage(nextLink);
-            }
+            // Always use the delta endpoint: the plain list endpoint never returns
+            // an @odata.deltaLink, so incremental syncs would never get a baseline.
+            // INITIAL (or no stored link): fresh delta round returns all users + a deltaLink.
+            // INCREMENTAL with stored link: returns only changed users.
+            // nextLink (if resuming/paging) takes precedence.
+            page = await client.getUsersDelta(nextLink || usersDeltaStart);
 
             // ───────────────────────────────────────────────────────────────────
             // Check for timeout after API call
@@ -406,15 +541,95 @@ processTask({
             // Filter out deleted users (marked with @removed property in delta queries)
             // Delta queries may return users with @removed: { reason: "deleted" }
             const activeItems = page.value.filter((u) => !u['@removed']);
+            console.log(
+              JSON.stringify({
+                event: 'entra_users_page',
+                sync_mode: isIncremental ? 'incremental' : 'initial',
+                query_mode: usersDeltaStart ? 'delta' : 'baseline',
+                received: page.value.length,
+                active: activeItems.length,
+                removed: page.value.length - activeItems.length,
+              })
+            );
+
+            // Delta payloads can be sparse or briefly lag the directory's current
+            // profile values. Hydrate only true delta results so mapped devu fields
+            // always come from a current /users/{id} representation.
+            const usersToNormalize: typeof activeItems = [];
+            for (const user of activeItems) {
+              if (!isIncremental) {
+                usersToNormalize.push(user);
+                continue;
+              }
+
+              console.log(
+                JSON.stringify({ event: 'entra_user_hydration_started', user_id: user.id })
+              );
+              const hydratedUser = await client.getUser(user.id);
+              if (!hydratedUser) {
+                console.warn(
+                  JSON.stringify({ event: 'entra_user_hydration_not_found', user_id: user.id })
+                );
+                continue;
+              }
+
+              console.log(
+                JSON.stringify({
+                  event: 'entra_user_hydration_completed',
+                  user_id: hydratedUser.id,
+                  display_name_present: Boolean(hydratedUser.displayName?.trim()),
+                  given_name_present: Boolean(hydratedUser.givenName?.trim()),
+                  surname_present: Boolean(hydratedUser.surname?.trim()),
+                  mail_present: Boolean(hydratedUser.mail?.trim()),
+                  upn_present: Boolean(hydratedUser.userPrincipalName?.trim()),
+                })
+              );
+
+              // If the directory read is behind the audit, patch the hydrated
+              // object with the audited new values before normalization so
+              // the correct profile is stored.  Without this, the stale read
+              // is stamped with the current modified_date and both the delta
+              // cursor and the audit window move past the real edit, making
+              // the change permanent until the next full sync.
+              const deltaOverlay = auditOverlayMap.get(hydratedUser.id);
+              const userToNormalize = deltaOverlay
+                ? overlayAuditedUserFields(hydratedUser, deltaOverlay)
+                : hydratedUser;
+              usersToNormalize.push(userToNormalize);
+            }
 
             // Transform raw Graph API users into DevRev format
-            const normalized = activeItems.map((u) => normalizeUser(u));
+            const normalized = usersToNormalize.map((u) => normalizeUser(u, syncTimestamp));
+            if (isIncremental) {
+              for (const item of normalized) {
+                console.log(
+                  JSON.stringify({
+                    event: 'entra_user_normalized',
+                    user_id: item.id,
+                    display_name_length: profileValueLength(item.data.display_name),
+                    full_name_length: profileValueLength(item.data.full_name),
+                    email_present: profileValueLength(item.data.email) > 0,
+                    created_date: item.created_date,
+                    modified_date: item.modified_date,
+                  })
+                );
+              }
+            }
 
             // Push normalized users to DevRev data repository
-            await adapter.getRepo(ENTITY_NAMES.USERS)?.push(normalized);
+            const usersPushed = await adapter.getRepo(ENTITY_NAMES.USERS)?.push(normalized);
+            console.log(
+              JSON.stringify({
+                event: 'entra_users_page_queued',
+                query_mode: usersDeltaStart ? 'delta' : 'baseline',
+                count: normalized.length,
+                success: usersPushed ?? false,
+              })
+            );
 
             // Collect user IDs for later use (group membership queries)
-            collectedIds.push(...activeItems.map((u) => u.id));
+            for (const user of usersToNormalize) processedUserIds.add(user.id);
+            collectedIds.push(...usersToNormalize.map((u) => u.id));
 
             // ───────────────────────────────────────────────────────────────────
             // Update extraction state for checkpoint/resumption
@@ -435,6 +650,56 @@ processTask({
             // Continue loop if more pages exist
           } while (nextLink);
 
+          // Hydrate successful audited updates that users/delta omitted. Audited
+          // users already returned by delta were hydrated after the consistency
+          // delay above and do not need a duplicate record in the same artifact.
+          const auditFallbackUsers: EntraUser[] = [];
+          for (const userId of auditedUserIds) {
+            if (processedUserIds.has(userId)) continue;
+            let hydratedUser = await client.getUser(userId);
+            if (hydratedUser) {
+              // Apply audit overlay: the directory may still be behind for
+              // users that delta omitted (the whole reason this fallback
+              // exists).  The audited modifiedProperties are the only source
+              // that already has the new value in that window.
+              const fallbackOverlay = auditOverlayMap.get(userId);
+              if (fallbackOverlay) {
+                hydratedUser = overlayAuditedUserFields(hydratedUser, fallbackOverlay);
+              }
+              auditFallbackUsers.push(hydratedUser);
+            }
+          }
+
+          const auditFallbackNormalized = auditFallbackUsers.map((user) =>
+            normalizeUser(user, syncTimestamp)
+          );
+          if (auditFallbackNormalized.length > 0) {
+            const fallbackPushed = await adapter
+              .getRepo(ENTITY_NAMES.USERS)
+              ?.push(auditFallbackNormalized);
+            adapter.state.users.extractedCount += auditFallbackNormalized.length;
+            for (const user of auditFallbackUsers) {
+              processedUserIds.add(user.id);
+              collectedIds.push(user.id);
+            }
+            adapter.state.users.ids = collectedIds;
+            console.log(
+              JSON.stringify({
+                event: 'entra_user_audit_fallback_queued',
+                audited: auditedUserIds.size,
+                delta_missed: auditFallbackNormalized.length,
+                success: fallbackPushed ?? false,
+              })
+            );
+          } else if (isIncremental) {
+            console.log(
+              JSON.stringify({
+                event: 'entra_user_audit_fallback_empty',
+                audited: auditedUserIds.size,
+              })
+            );
+          }
+
           // ─────────────────────────────────────────────────────────────────────
           // Extraction Complete - Save delta link and mark as done
           // ─────────────────────────────────────────────────────────────────────
@@ -443,6 +708,10 @@ processTask({
           // Delta link is only present after final page is retrieved
           if (page?.['@odata.deltaLink']) {
             adapter.state.deltaLinks.users = page['@odata.deltaLink'];
+            // Initial AirSync state may not be promoted to the next run by older
+            // imports. Mark the cursor usable only after the first incremental
+            // baseline; the following run then performs a true delta query.
+            if (isIncremental) adapter.state.userDeltaInitialized = true;
           }
 
           // Mark entity as completed
@@ -494,14 +763,15 @@ processTask({
 
             // Clear delta link - next invocation will do full sync
             adapter.state.deltaLinks.users = undefined;
+            adapter.state.userDeltaInitialized = false;
+            adapter.state.users = {
+              completed: false,
+              extractedCount: 0,
+              ids: [],
+            };
 
-            // Mark entity as incomplete so it gets re-extracted
-            adapter.state.users.completed = false;
-
-            // Clear pagination token to start from beginning
-            adapter.state.users.nextLink = undefined;
-
-            // Exit - entity will be re-extracted with full sync on next invocation
+            // Persist the reset and continue extraction from a fresh delta round.
+            await adapter.emit(ExtractorEventType.DataExtractionProgress);
             return;
           }
 
@@ -539,20 +809,46 @@ processTask({
           let nextLink = adapter.state.groups.nextLink;
           let page;
           const collectedIds: string[] = [...adapter.state.groups.ids];
+
+          // Decide once per run whether groups come from a stored delta link. The
+          // decision is persisted so resumed invocations (and the group members
+          // step) see the same value even after the delta link is replaced.
+          const groupsDeltaStart = isIncremental ? adapter.state.deltaLinks.groups : undefined;
+          if (adapter.state.groups.usedDelta === undefined) {
+            adapter.state.groups.usedDelta = !!groupsDeltaStart;
+          }
+          const groupsUsedDelta = adapter.state.groups.usedDelta;
           do {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-            if (isIncremental && adapter.state.deltaLinks.groups) {
-              page = await client.getGroupsDelta(nextLink || adapter.state.deltaLinks.groups);
-            } else {
-              page = await client.listGroupsPage(nextLink);
-            }
+            // Always use delta so a deltaLink (with members@delta tracking) is obtained.
+            page = await client.getGroupsDelta(nextLink || groupsDeltaStart);
 
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
             const activeItems = page.value.filter((g) => !g['@removed']);
-            const normalized = activeItems.map((g) => normalizeGroup(g));
+            const normalized = activeItems.map((g) => normalizeGroup(g, isIncremental ? syncTimestamp : undefined));
             await adapter.getRepo(ENTITY_NAMES.GROUPS)?.push(normalized);
+
+            // Membership adds/removals from the groups delta (incremental only).
+            // A full member listing runs later when the delta is not used.
+            if (groupsUsedDelta) {
+              const memberRecords: NormalizedItem[] = [];
+              for (const g of activeItems) {
+                for (const m of g['members@delta'] ?? []) {
+                  // The object_member mapping references users. Ignore nested groups,
+                  // service principals, and devices to avoid dangling references.
+                  if (m['@odata.type'] && m['@odata.type'] !== '#microsoft.graph.user') continue;
+                  memberRecords.push(
+                    m['@removed']
+                      ? normalizeGroupMemberRemoval(m.id, g.id, syncTimestamp)
+                      : normalizeGroupMember(m, g.id, syncTimestamp)
+                  );
+                }
+              }
+              await adapter.getRepo(ENTITY_NAMES.GROUP_MEMBERS)?.push(memberRecords);
+              adapter.state.groupMembers.extractedCount += memberRecords.length;
+            }
             collectedIds.push(...activeItems.map((g) => g.id));
 
             adapter.state.groups.ids = collectedIds;
@@ -566,6 +862,10 @@ processTask({
           }
           adapter.state.groups.completed = true;
           adapter.state.groups.nextLink = undefined;
+          // Membership changes were already emitted from members@delta; no full listing needed.
+          if (groupsUsedDelta) {
+            adapter.state.groupMembers.completed = true;
+          }
           console.log(`[data-extraction] Groups extracted: ${adapter.state.groups.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
@@ -579,8 +879,17 @@ processTask({
           }
           if (isDeltaExpiredError(error)) {
             adapter.state.deltaLinks.groups = undefined;
-            adapter.state.groups.completed = false;
-            adapter.state.groups.nextLink = undefined;
+            adapter.state.groups = {
+              completed: false,
+              extractedCount: 0,
+              ids: [],
+            };
+            adapter.state.groupMembers = {
+              completed: false,
+              currentParentIndex: 0,
+              extractedCount: 0,
+            };
+            await adapter.emit(ExtractorEventType.DataExtractionProgress);
             return;
           }
           if (isForbiddenError(error)) {
@@ -619,7 +928,9 @@ processTask({
 
               if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-              const normalized = page.value.map((m) => normalizeGroupMember(m, groupId));
+              const normalized = page.value
+                .filter((m) => !m['@odata.type'] || m['@odata.type'] === '#microsoft.graph.user')
+                .map((m) => normalizeGroupMember(m, groupId));
               await adapter.getRepo(ENTITY_NAMES.GROUP_MEMBERS)?.push(normalized);
 
               adapter.state.groupMembers.extractedCount += normalized.length;
@@ -670,16 +981,16 @@ processTask({
           do {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-            if (isIncremental && adapter.state.deltaLinks.directoryRoles) {
-              page = await client.getDirectoryRolesDelta(nextLink || adapter.state.deltaLinks.directoryRoles);
-            } else {
-              page = await client.listDirectoryRolesPage(nextLink);
-            }
+            page = await client.getDirectoryRolesDelta(
+              nextLink || (isIncremental ? adapter.state.deltaLinks.directoryRoles : undefined)
+            );
 
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
             const activeItems = page.value.filter((r) => !r['@removed']);
-            const normalized = activeItems.map((r) => normalizeDirectoryRole(r));
+            const normalized = activeItems.map((r) =>
+              normalizeDirectoryRole(r, isIncremental ? syncTimestamp : undefined)
+            );
             await adapter.getRepo(ENTITY_NAMES.DIRECTORY_ROLES)?.push(normalized);
             collectedIds.push(...activeItems.map((r) => r.id));
 
@@ -750,16 +1061,16 @@ processTask({
           do {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-            if (isIncremental && adapter.state.deltaLinks.applications) {
-              page = await client.getApplicationsDelta(nextLink || adapter.state.deltaLinks.applications);
-            } else {
-              page = await client.listApplicationsPage(nextLink);
-            }
+            page = await client.getApplicationsDelta(
+              nextLink || (isIncremental ? adapter.state.deltaLinks.applications : undefined)
+            );
 
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
             const activeItems = page.value.filter((a) => !a['@removed']);
-            const normalized = activeItems.map((a) => normalizeApplication(a));
+            const normalized = activeItems.map((a) =>
+              normalizeApplication(a, isIncremental ? syncTimestamp : undefined)
+            );
             await adapter.getRepo(ENTITY_NAMES.APPLICATIONS)?.push(normalized);
 
             adapter.state.applications.extractedCount += normalized.length;
@@ -815,16 +1126,16 @@ processTask({
           do {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-            if (isIncremental && adapter.state.deltaLinks.servicePrincipals) {
-              page = await client.getServicePrincipalsDelta(nextLink || adapter.state.deltaLinks.servicePrincipals);
-            } else {
-              page = await client.listServicePrincipalsPage(nextLink);
-            }
+            page = await client.getServicePrincipalsDelta(
+              nextLink || (isIncremental ? adapter.state.deltaLinks.servicePrincipals : undefined)
+            );
 
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
             const activeItems = page.value.filter((sp) => !sp['@removed']);
-            const normalized = activeItems.map((sp) => normalizeServicePrincipal(sp));
+            const normalized = activeItems.map((sp) =>
+              normalizeServicePrincipal(sp, isIncremental ? syncTimestamp : undefined)
+            );
             await adapter.getRepo(ENTITY_NAMES.SERVICE_PRINCIPALS)?.push(normalized);
             collectedIds.push(...activeItems.map((sp) => sp.id));
 
@@ -882,11 +1193,9 @@ processTask({
           do {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-            if (isIncremental && adapter.state.deltaLinks.devices) {
-              page = await client.getDevicesDelta(nextLink || adapter.state.deltaLinks.devices);
-            } else {
-              page = await client.listDevicesPage(nextLink);
-            }
+            page = await client.getDevicesDelta(
+              nextLink || (isIncremental ? adapter.state.deltaLinks.devices : undefined)
+            );
 
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
@@ -940,7 +1249,9 @@ processTask({
               );
             }
 
-            const normalized = activeItems.map((d) => normalizeDevice(d));
+            const normalized = activeItems.map((d) =>
+              normalizeDevice(d, isIncremental ? syncTimestamp : undefined)
+            );
             await adapter.getRepo(ENTITY_NAMES.DEVICES)?.push(normalized);
 
             adapter.state.devices.extractedCount += normalized.length;
@@ -1000,16 +1311,16 @@ processTask({
           do {
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
-            if (isIncremental && adapter.state.deltaLinks.orgContacts) {
-              page = await client.getOrgContactsDelta(nextLink || adapter.state.deltaLinks.orgContacts);
-            } else {
-              page = await client.listOrgContactsPage(nextLink);
-            }
+            page = await client.getOrgContactsDelta(
+              nextLink || (isIncremental ? adapter.state.deltaLinks.orgContacts : undefined)
+            );
 
             if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
 
             const activeItems = page.value.filter((c) => !c['@removed']);
-            const normalized = activeItems.map((c) => normalizeOrgContact(c));
+            const normalized = activeItems.map((c) =>
+              normalizeOrgContact(c, isIncremental ? syncTimestamp : undefined)
+            );
             await adapter.getRepo(ENTITY_NAMES.ORG_CONTACTS)?.push(normalized);
 
             adapter.state.orgContacts.extractedCount += normalized.length;
