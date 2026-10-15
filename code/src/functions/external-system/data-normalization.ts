@@ -438,13 +438,18 @@ export function normalizeOrgContact(contact: EntraOrgContact, modifiedDate?: str
  * @param servicePrincipalId - The service principal ID that defines this role
  * @returns Normalized item representing an app role definition
  */
-export function normalizeAppRole(appRole: EntraAppRole, servicePrincipalId: string): NormalizedItem {
+export function normalizeAppRole(
+  appRole: EntraAppRole,
+  servicePrincipalId: string,
+  modifiedDate?: string
+): NormalizedItem {
   return {
     // Composite ID: "servicePrincipalId_appRoleId" (underscore separator)
     id: `${servicePrincipalId}_${appRole.id}`,
-    // App roles don't have timestamps
+    // App roles don't have timestamps in Graph; stamp sync time on incremental
+    // so changed role payloads are not suppressed as unchanged duplicates.
     created_date: FALLBACK_DATE,
-    modified_date: FALLBACK_DATE,
+    modified_date: modifiedDate || FALLBACK_DATE,
     data: {
       app_role_id: appRole.id, // Unique app role ID (GUID)
       service_principal_id: servicePrincipalId, // Parent service principal ID
@@ -540,7 +545,8 @@ export function normalizeAppRoleAssignment(
 export function normalizeAuthenticationMethod(
   method: EntraAuthenticationMethod,
   userId: string,
-  userDisplayName?: string
+  userDisplayName?: string,
+  modifiedDate?: string
 ): NormalizedItem {
   // Extract method type from @odata.type field (keep camelCase for enum matching)
   // Example: "microsoft.graph.phoneAuthenticationMethod" → "phoneAuthenticationMethod"
@@ -590,7 +596,9 @@ export function normalizeAuthenticationMethod(
     // Composite ID: "userId_methodId" ensures uniqueness (underscore separator)
     id: `${userId}_${method.id}`,
     created_date: method.createdDateTime || FALLBACK_DATE, // When method was registered
-    modified_date: method.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
+    // Prefer sync timestamp on incremental so status/detail changes are not
+    // suppressed by a stale creation-only modified_date.
+    modified_date: modifiedDate || method.createdDateTime || FALLBACK_DATE,
     data: {
       user_id: userId, // ID of the user who owns this method
       user_display_name: userDisplayName ?? null, // Display name of the user who owns this method
@@ -630,7 +638,8 @@ export function normalizeAuthenticationMethod(
  * @returns Normalized item with policy settings and enabled/disabled method summaries
  */
 export function normalizeAuthenticationMethodsPolicy(
-  policy: EntraAuthenticationMethodsPolicy
+  policy: EntraAuthenticationMethodsPolicy,
+  modifiedDate?: string
 ): NormalizedItem {
   // Extract registration enforcement campaign details
   // This campaign nudges users to register additional auth methods
@@ -683,9 +692,10 @@ export function normalizeAuthenticationMethodsPolicy(
 
   return {
     id: policy.id, // Policy ID (typically a constant GUID)
-    // Policies don't have creation timestamps
+    // Policies don't have creation timestamps; stamp sync time on incremental
+    // so policy content changes are eligible for update.
     created_date: FALLBACK_DATE,
-    modified_date: FALLBACK_DATE,
+    modified_date: modifiedDate || FALLBACK_DATE,
     data: {
       display_name: policy.displayName, // Policy display name
       // Registration enforcement object (stringified as rich_text for DevRev EDM)
@@ -740,7 +750,8 @@ export function normalizeAuthenticationMethodsPolicy(
  */
 export function normalizeLicenseAssignment(
   license: EntraLicenseDetails,
-  userId: string
+  userId: string,
+  modifiedDate?: string
 ): NormalizedItem {
   // Calculate service plan counts by provisioning status
 
@@ -783,9 +794,10 @@ export function normalizeLicenseAssignment(
   return {
     // Composite ID: "userId_licenseId" ensures uniqueness (underscore separator)
     id: `${userId}_${license.id}`,
-    // License assignments don't have timestamps in Graph API
+    // License assignments don't have timestamps in Graph API; stamp sync time
+    // on incremental so plan/status changes can update.
     created_date: FALLBACK_DATE,
-    modified_date: FALLBACK_DATE,
+    modified_date: modifiedDate || FALLBACK_DATE,
     data: {
       user_id: userId, // ID of the user who has this license
       sku_id: license.skuId, // License SKU ID (GUID)
@@ -827,7 +839,10 @@ export function normalizeLicenseAssignment(
  * @param schedule - Raw PIM role eligibility schedule from /roleManagement/directory/roleEligibilitySchedules
  * @returns Normalized item with eligibility details and schedule information
  */
-export function normalizePIMEligibleRole(schedule: EntraPIMRoleEligibilitySchedule): NormalizedItem {
+export function normalizePIMEligibleRole(
+  schedule: EntraPIMRoleEligibilitySchedule,
+  modifiedDate?: string
+): NormalizedItem {
   // Extract schedule information (type assertion needed for complex nested object)
   const scheduleInfo = schedule.scheduleInfo as any;
 
@@ -851,7 +866,8 @@ export function normalizePIMEligibleRole(schedule: EntraPIMRoleEligibilitySchedu
   return {
     id: schedule.id, // Unique schedule ID (GUID)
     created_date: schedule.createdDateTime || FALLBACK_DATE, // When schedule was created
-    modified_date: schedule.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
+    // Prefer sync timestamp on incremental so status/schedule changes update.
+    modified_date: modifiedDate || schedule.createdDateTime || FALLBACK_DATE,
     data: {
       principal_id: schedule.principalId, // ID of user/group eligible for the role
       role_definition_id: schedule.roleDefinitionId, // ID of the directory role

@@ -197,9 +197,9 @@
           "type": "enum",
           "enum": {
             "values": [
-              { "key": "AzureAD", "name": "Azure AD Joined" },
+              { "key": "AzureAd", "name": "Azure AD Joined" },
               { "key": "Workplace", "name": "Workplace Joined" },
-              { "key": "ServerAD", "name": "Server AD Joined" }
+              { "key": "ServerAd", "name": "Server AD Joined" }
             ]
           }
         },

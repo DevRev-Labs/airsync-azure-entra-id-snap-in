@@ -821,9 +821,9 @@
               "trust_type": {
                 "field_descriptor": {
                   "allowed_values": [
-                    "AzureAD",
+                    "AzureAd",
                     "Workplace",
-                    "ServerAD"
+                    "ServerAd"
                   ],
                   "data_name": "trust_type",
                   "db_name": "trust_type",
@@ -837,9 +837,9 @@
                   "can_apply_to_null": true,
                   "custom_field_type": {
                     "allowed_values": [
-                      "AzureAD",
+                      "AzureAd",
                       "Workplace",
-                      "ServerAD"
+                      "ServerAd"
                     ],
                     "data_name": "trust_type",
                     "db_name": "trust_type",
@@ -2451,35 +2451,311 @@
                   "use_primary_input": true
                 }
               },
-              "conditions": {
+              "include_users": {
                 "field_descriptor": {
-                  "data_name": "conditions",
-                  "db_name": "conditions",
-                  "field_type": "rich_text",
-                  "name": "conditions",
+                  "data_name": "include_users",
+                  "db_name": "include_users",
+                  "field_type": "text",
+                  "name": "include_users",
                   "ui": {
-                    "display_name": "Conditions"
+                    "display_name": "Include Users"
                   }
                 },
                 "transformation_method": {
                   "can_apply_to_null": true,
                   "custom_field_type": {
-                    "data_name": "conditions",
-                    "db_name": "conditions",
-                    "field_type": "rich_text",
-                    "name": "conditions"
+                    "data_name": "include_users",
+                    "db_name": "include_users",
+                    "field_type": "text",
+                    "name": "include_users"
                   },
-                  "forward_jq": ".conditions",
+                  "forward_jq": ".include_users",
                   "transformation_method": "use_raw_jq",
                   "use_primary_input": true
                 }
               },
-              "grant_controls": {
+              "exclude_users": {
                 "field_descriptor": {
-                  "data_name": "grant_controls",
-                  "db_name": "grant_controls",
-                  "field_type": "rich_text",
-                  "name": "grant_controls",
+                  "data_name": "exclude_users",
+                  "db_name": "exclude_users",
+                  "field_type": "text",
+                  "name": "exclude_users",
+                  "ui": {
+                    "display_name": "Exclude Users"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "exclude_users",
+                    "db_name": "exclude_users",
+                    "field_type": "text",
+                    "name": "exclude_users"
+                  },
+                  "forward_jq": ".exclude_users",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "include_groups": {
+                "field_descriptor": {
+                  "data_name": "include_groups",
+                  "db_name": "include_groups",
+                  "field_type": "text",
+                  "name": "include_groups",
+                  "ui": {
+                    "display_name": "Include Groups"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "include_groups",
+                    "db_name": "include_groups",
+                    "field_type": "text",
+                    "name": "include_groups"
+                  },
+                  "forward_jq": ".include_groups",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "exclude_groups": {
+                "field_descriptor": {
+                  "data_name": "exclude_groups",
+                  "db_name": "exclude_groups",
+                  "field_type": "text",
+                  "name": "exclude_groups",
+                  "ui": {
+                    "display_name": "Exclude Groups"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "exclude_groups",
+                    "db_name": "exclude_groups",
+                    "field_type": "text",
+                    "name": "exclude_groups"
+                  },
+                  "forward_jq": ".exclude_groups",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "include_roles": {
+                "field_descriptor": {
+                  "data_name": "include_roles",
+                  "db_name": "include_roles",
+                  "field_type": "text",
+                  "name": "include_roles",
+                  "ui": {
+                    "display_name": "Include Roles"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "include_roles",
+                    "db_name": "include_roles",
+                    "field_type": "text",
+                    "name": "include_roles"
+                  },
+                  "forward_jq": ".include_roles",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "exclude_roles": {
+                "field_descriptor": {
+                  "data_name": "exclude_roles",
+                  "db_name": "exclude_roles",
+                  "field_type": "text",
+                  "name": "exclude_roles",
+                  "ui": {
+                    "display_name": "Exclude Roles"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "exclude_roles",
+                    "db_name": "exclude_roles",
+                    "field_type": "text",
+                    "name": "exclude_roles"
+                  },
+                  "forward_jq": ".exclude_roles",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "include_applications": {
+                "field_descriptor": {
+                  "data_name": "include_applications",
+                  "db_name": "include_applications",
+                  "field_type": "text",
+                  "name": "include_applications",
+                  "ui": {
+                    "display_name": "Include Applications"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "include_applications",
+                    "db_name": "include_applications",
+                    "field_type": "text",
+                    "name": "include_applications"
+                  },
+                  "forward_jq": ".include_applications",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "exclude_applications": {
+                "field_descriptor": {
+                  "data_name": "exclude_applications",
+                  "db_name": "exclude_applications",
+                  "field_type": "text",
+                  "name": "exclude_applications",
+                  "ui": {
+                    "display_name": "Exclude Applications"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "exclude_applications",
+                    "db_name": "exclude_applications",
+                    "field_type": "text",
+                    "name": "exclude_applications"
+                  },
+                  "forward_jq": ".exclude_applications",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "include_platforms": {
+                "field_descriptor": {
+                  "data_name": "include_platforms",
+                  "db_name": "include_platforms",
+                  "field_type": "text",
+                  "name": "include_platforms",
+                  "ui": {
+                    "display_name": "Include Platforms"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "include_platforms",
+                    "db_name": "include_platforms",
+                    "field_type": "text",
+                    "name": "include_platforms"
+                  },
+                  "forward_jq": ".include_platforms",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "exclude_platforms": {
+                "field_descriptor": {
+                  "data_name": "exclude_platforms",
+                  "db_name": "exclude_platforms",
+                  "field_type": "text",
+                  "name": "exclude_platforms",
+                  "ui": {
+                    "display_name": "Exclude Platforms"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "exclude_platforms",
+                    "db_name": "exclude_platforms",
+                    "field_type": "text",
+                    "name": "exclude_platforms"
+                  },
+                  "forward_jq": ".exclude_platforms",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "include_locations": {
+                "field_descriptor": {
+                  "data_name": "include_locations",
+                  "db_name": "include_locations",
+                  "field_type": "text",
+                  "name": "include_locations",
+                  "ui": {
+                    "display_name": "Include Locations"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "include_locations",
+                    "db_name": "include_locations",
+                    "field_type": "text",
+                    "name": "include_locations"
+                  },
+                  "forward_jq": ".include_locations",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "exclude_locations": {
+                "field_descriptor": {
+                  "data_name": "exclude_locations",
+                  "db_name": "exclude_locations",
+                  "field_type": "text",
+                  "name": "exclude_locations",
+                  "ui": {
+                    "display_name": "Exclude Locations"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "exclude_locations",
+                    "db_name": "exclude_locations",
+                    "field_type": "text",
+                    "name": "exclude_locations"
+                  },
+                  "forward_jq": ".exclude_locations",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "client_app_types": {
+                "field_descriptor": {
+                  "data_name": "client_app_types",
+                  "db_name": "client_app_types",
+                  "field_type": "text",
+                  "name": "client_app_types",
+                  "ui": {
+                    "display_name": "Client App Types"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "client_app_types",
+                    "db_name": "client_app_types",
+                    "field_type": "text",
+                    "name": "client_app_types"
+                  },
+                  "forward_jq": ".client_app_types",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "grant_built_in_controls": {
+                "field_descriptor": {
+                  "data_name": "grant_built_in_controls",
+                  "db_name": "grant_built_in_controls",
+                  "field_type": "text",
+                  "name": "grant_built_in_controls",
                   "ui": {
                     "display_name": "Grant Controls"
                   }
@@ -2487,35 +2763,128 @@
                 "transformation_method": {
                   "can_apply_to_null": true,
                   "custom_field_type": {
-                    "data_name": "grant_controls",
-                    "db_name": "grant_controls",
-                    "field_type": "rich_text",
-                    "name": "grant_controls"
+                    "data_name": "grant_built_in_controls",
+                    "db_name": "grant_built_in_controls",
+                    "field_type": "text",
+                    "name": "grant_built_in_controls"
                   },
-                  "forward_jq": ".grant_controls",
+                  "forward_jq": ".grant_built_in_controls",
                   "transformation_method": "use_raw_jq",
                   "use_primary_input": true
                 }
               },
-              "session_controls": {
+              "grant_operator": {
                 "field_descriptor": {
-                  "data_name": "session_controls",
-                  "db_name": "session_controls",
-                  "field_type": "rich_text",
-                  "name": "session_controls",
+                  "allowed_values": [
+                    "AND",
+                    "OR"
+                  ],
+                  "data_name": "grant_operator",
+                  "db_name": "grant_operator",
+                  "field_type": "enum",
+                  "name": "grant_operator",
                   "ui": {
-                    "display_name": "Session Controls"
+                    "display_name": "Grant Operator"
                   }
                 },
                 "transformation_method": {
                   "can_apply_to_null": true,
                   "custom_field_type": {
-                    "data_name": "session_controls",
-                    "db_name": "session_controls",
-                    "field_type": "rich_text",
-                    "name": "session_controls"
+                    "allowed_values": [
+                      "AND",
+                      "OR"
+                    ],
+                    "data_name": "grant_operator",
+                    "db_name": "grant_operator",
+                    "field_type": "enum",
+                    "name": "grant_operator"
                   },
-                  "forward_jq": ".session_controls",
+                  "forward_jq": ".grant_operator",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "sign_in_frequency_value": {
+                "field_descriptor": {
+                  "data_name": "sign_in_frequency_value",
+                  "db_name": "sign_in_frequency_value",
+                  "field_type": "int",
+                  "name": "sign_in_frequency_value",
+                  "ui": {
+                    "display_name": "Sign-in Frequency Value"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "data_name": "sign_in_frequency_value",
+                    "db_name": "sign_in_frequency_value",
+                    "field_type": "int",
+                    "name": "sign_in_frequency_value"
+                  },
+                  "forward_jq": ".sign_in_frequency_value",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "sign_in_frequency_type": {
+                "field_descriptor": {
+                  "allowed_values": [
+                    "days",
+                    "hours"
+                  ],
+                  "data_name": "sign_in_frequency_type",
+                  "db_name": "sign_in_frequency_type",
+                  "field_type": "enum",
+                  "name": "sign_in_frequency_type",
+                  "ui": {
+                    "display_name": "Sign-in Frequency Type"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "allowed_values": [
+                      "days",
+                      "hours"
+                    ],
+                    "data_name": "sign_in_frequency_type",
+                    "db_name": "sign_in_frequency_type",
+                    "field_type": "enum",
+                    "name": "sign_in_frequency_type"
+                  },
+                  "forward_jq": ".sign_in_frequency_type",
+                  "transformation_method": "use_raw_jq",
+                  "use_primary_input": true
+                }
+              },
+              "persistent_browser_mode": {
+                "field_descriptor": {
+                  "allowed_values": [
+                    "always",
+                    "never"
+                  ],
+                  "data_name": "persistent_browser_mode",
+                  "db_name": "persistent_browser_mode",
+                  "field_type": "enum",
+                  "name": "persistent_browser_mode",
+                  "ui": {
+                    "display_name": "Persistent Browser"
+                  }
+                },
+                "transformation_method": {
+                  "can_apply_to_null": true,
+                  "custom_field_type": {
+                    "allowed_values": [
+                      "always",
+                      "never"
+                    ],
+                    "data_name": "persistent_browser_mode",
+                    "db_name": "persistent_browser_mode",
+                    "field_type": "enum",
+                    "name": "persistent_browser_mode"
+                  },
+                  "forward_jq": ".persistent_browser_mode",
                   "transformation_method": "use_raw_jq",
                   "use_primary_input": true
                 }
