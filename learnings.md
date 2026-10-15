@@ -37,3 +37,39 @@ Recorded issues and fixes discovered during connector code generation or modific
 **Source:** Local testing sync-unit report for `34ea68bf…`; extractor queued updated users (`Users extracted: 1`, overlay applied) but destination outcomes were `users.duplicate: 1` / `updated: 0`, and DEVU-75 `modified_date` stayed at the initial sync timestamp.
 **Problem:** After a successful extract+push, AirSync's loader may classify stock `devu` records as `duplicate` instead of `updated`, so profile field changes never land in DevRev even though connector logs look healthy.
 **Fix:** Diagnose with `airsync sync-unit report` destination outcomes (not only extractor logs). Keep extraction/overlay correct; if outcomes stay `duplicate` with newer `modified_date`, escalate as an AirSync load/mapping behavior for stock DevUsers (try `full_sync` / verify recipe), not as a missing Graph delta.
+
+---
+
+## L005 — Expired delta handlers must emit an SDK outcome
+
+**Date:** 2026-10-15
+**Source:** Marketplace review of directory-role / application / service-principal / device / contact extraction
+**Problem:** Those handlers cleared an expired delta link and returned without emitting progress or error. The SDK only runs `onTimeout` on timeout, so an ordinary 410 exit produced "Worker exited without emitting event" and the reset was not reliably persisted.
+**Fix:** After clearing the delta link and resetting the entity cursor, emit `DataExtractionProgress` (same pattern as users/groups) so the platform persists state and resumes a full delta round.
+
+---
+
+## L006 — Audit preflight and user hydration must checkpoint mid-work
+
+**Date:** 2026-10-15
+**Source:** Marketplace review of incremental user sync at tenant scale
+**Problem:** Audit preflight kept `auditNextLink` / overlays only in memory with no `isTimeout` checks, and user hydration only checked timeout around the delta page fetch. Long scans burned the whole budget or hard-killed mid-hydration, then restarted from page one / the same page without progress.
+**Fix:** Persist `userAuditPreflight` in adapter state with timeout checks between audit pages; add `users.currentUserIndex`, check `isTimeout` inside hydration and audit-fallback loops, and flush/push before a timeout return.
+
+---
+
+## L007 — Child collections need durable parent IDs; mappings and modified_date must match extract
+
+**Date:** 2026-10-15
+**Source:** Marketplace review of incremental child extract + CA/device mapping
+**Problem:** Incremental Start wiped user/SP IDs so empty parent deltas skipped app roles, auth methods, and licenses. CA IDM mapped nested `conditions`/`grant_controls`/`session_controls` while the normalizer emitted flattened fields; device EDM/IDM used `AzureAD` vs Graph `AzureAd`. App roles, auth policy, methods, licenses, and PIM used sentinel/create-only `modified_date`.
+**Fix:** Preserve known user/SP IDs across incremental reset (prune on `@removed`); align IDM/EDM with flattened CA fields and Graph `AzureAd`/`ServerAd`; stamp incremental `syncTimestamp` into those normalizers' `modified_date`.
+
+---
+
+## L008 — Parent-ID preserve needs prune persist, SP expiry reset, fallback resume, and upgrade rebuild
+
+**Date:** 2026-10-15
+**Source:** Copilot review on PR #32 for marketplace parent-ID / timeout changes
+**Problem:** Audit-fallback timeout discarded buffered users with no resume index; delete-only user deltas pruned ids only in memory before advancing the cursor; SP 410 cleared the delta link but kept stale ids (unlike users); upgrading tenants kept incomplete pre-preserve id lists forever.
+**Fix:** Checkpoint audit-fallback with flush + `fallbackIndex` / `deltaPhaseCompleted`; always persist `users.ids` after prune; clear SP `ids` on expired delta; one-time `parentIdsBaselineVersion` migration forces full users+SP rebuild before preserving again.

@@ -214,7 +214,7 @@ After the initial sync, subsequent syncs only fetch changed entities:
 - Uses Microsoft Graph delta queries
 - Only fetches entities that changed since last sync
 - Much faster than full sync (typically completes in minutes)
-- Automatically handles deletions
+- Syncs group name, description, and membership changes (including membership removals)
 
 ### Schedule Automatic Syncs
 
@@ -232,10 +232,21 @@ To keep data up-to-date automatically:
 
 ### What Gets Synced
 
-- **New entities**: Added to DevRev
-- **Updated entities**: Existing records updated with new data
-- **Deleted entities**: Marked as deleted in DevRev (soft delete)
+- **New entities**: Added to DevRev on initial and incremental sync
+- **Users (initial sync)**: Created as DevRev `devu` records with correct `created_date` from Azure
+- **Groups (incremental)**: Group name, description, and membership changes (add and remove) are synced
 - **Custom attributes**: Azure extension properties map to DevRev custom fields
+
+### Supported vs Platform Limitations
+
+| Capability | Status | Notes |
+|------------|--------|-------|
+| Initial sync — create users (`devu`) | Supported | `created_date` is taken from Azure Entra ID |
+| Incremental sync — group name / description updates | Supported | Applied on subsequent syncs |
+| Incremental sync — group membership add / remove | Supported | Membership removals are emitted and applied |
+| Incremental sync — role membership changes | Supported | Role member add/remove follow the same pattern as groups |
+| Incremental sync — update `devu` user profile (display name, full name, email) | **Platform limitation** | Extract may succeed; AirSync load may report `duplicate` instead of `updated`. Stock DevUser profile fields are not updated on incremental. |
+| Delete objects in DevRev when deleted in Azure | **Platform limitation** | Object deletion is not propagated by AirSync |
 
 ### Incremental Sync Details
 
@@ -244,6 +255,8 @@ The connector uses Microsoft Graph delta queries to efficiently track changes:
 - Delta tokens are valid for 7 days
 - If a delta token expires, the connector automatically falls back to full sync
 - Some entities (like audit logs) use time-windowed queries instead of delta
+- Group membership removals are detected and pushed on incremental sync
+- User profile changes may be extracted from Graph, but applying those updates to existing stock `devu` records is limited by the AirSync platform (see table above)
 
 ### Permission-Based Sync
 
@@ -335,8 +348,9 @@ The connector gracefully handles missing permissions:
 
 **Solutions**:
 - Guest users are included in sync (may not be visible in Azure portal count)
-- Deleted users are soft-deleted in DevRev (may still appear in count)
-- Run a fresh full sync to ensure data consistency
+- Users deleted in Azure are **not** removed from DevRev (object deletion is an AirSync platform limitation; records may still appear in count)
+- User profile field updates on incremental sync may not appear in DevRev (stock `devu` update is a platform limitation)
+- Run a fresh full sync to ensure data consistency where supported
 - Verify filters or sync rules aren't excluding users
 
 **Problem**: Custom attributes not appearing
@@ -404,6 +418,21 @@ Currently, the connector syncs all users. Contact DevRev support if you need fil
 ### Is guest user data synced?
 
 Yes. Both member users and guest users (external accounts invited to your tenant) are synced.
+
+### Does incremental sync update groups and memberships?
+
+Yes. On incremental sync the connector supports:
+- Group name and description updates
+- Group membership additions and removals
+- Role membership changes
+
+### Are user profile updates and object deletes supported?
+
+Partially / no — these are **AirSync platform limitations**:
+- **Updating `devu` user profile** (display name, full name, email) on incremental sync is not applied in DevRev even when the connector extracts the change
+- **Deleting objects** in DevRev when they are deleted in Azure is not propagated
+
+Users are created correctly on initial sync (including `created_date` from Azure).
 
 ### How long are audit logs retained?
 

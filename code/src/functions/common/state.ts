@@ -9,6 +9,55 @@ export interface EntityStateWithIds extends EntityState {
   ids: string[];
 }
 
+/**
+ * Users additionally track a mid-page hydration cursor. Incremental sync
+ * hydrates each delta user with GET /users/{id}; without this index a soft
+ * timeout mid-page would re-hydrate from user 0 on the next invocation.
+ */
+export interface UsersState extends EntityStateWithIds {
+  currentUserIndex?: number;
+}
+
+/**
+ * Checkpoint for the incremental "Update user" audit preflight. Held only in
+ * local memory previously, so a timeout before the user delta loop restarted
+ * the audit scan from page one on every invocation.
+ */
+export interface UserAuditPreflightState {
+  /** ISO watermark used as the audit filter start (includes lookback). */
+  auditStart?: string;
+  /** Graph @odata.nextLink for the in-progress audit page scan. */
+  nextLink?: string;
+  /** True once every audit page for this run has been consumed. */
+  completed?: boolean;
+  /** User IDs seen in successful "Update user" audits this run. */
+  auditedUserIds?: string[];
+  /**
+   * Serializable form of the per-user audit overlay map
+   * (field name → { newValue, oldValue }).
+   */
+  overlayByUserId?: Record<
+    string,
+    Partial<
+      Record<
+        'displayName' | 'givenName' | 'surname' | 'mail' | 'userPrincipalName',
+        { newValue: string | null; oldValue: string | null }
+      >
+    >
+  >;
+  /**
+   * True after the users/delta page loop finishes for this run. Lets Continue
+   * skip re-fetching delta and resume audit-fallback hydration instead.
+   */
+  deltaPhaseCompleted?: boolean;
+  /** Delta link from the finished delta round; applied only after fallback ends. */
+  pendingDeltaLink?: string;
+  /** Index into the audit-fallback candidate list for timeout resume. */
+  fallbackIndex?: number;
+  /** User IDs already hydrated (delta + fallback) this run — avoids re-push on Continue. */
+  processedUserIds?: string[];
+}
+
 // Groups additionally record whether this run consumes a groups delta (which
 // carries membership adds/removals via members@delta) so group membership
 // extraction can skip the full per-group member listing.
@@ -34,7 +83,7 @@ export interface DevicesState extends EntityState {
 }
 
 export interface State {
-  users: EntityStateWithIds;
+  users: UsersState;
   groups: GroupsState;
   groupMembers: NestedEntityState;
   directoryRoles: EntityStateWithIds;
@@ -43,6 +92,9 @@ export interface State {
   servicePrincipals: EntityStateWithIds;
   devices: DevicesState;
   orgContacts: EntityState;
+
+  /** Resumable checkpoint for incremental user audit preflight. */
+  userAuditPreflight?: UserAuditPreflightState;
 
   // NEW ENTITIES
   appRoles: NestedEntityState;
@@ -71,6 +123,13 @@ export interface State {
   // delta round so existing users are re-normalized after name logic changes.
   userNormalizationVersion?: number;
   userDeltaInitialized?: boolean;
+
+  /**
+   * Bumped when parent-ID cache semantics change. Existing sync units that
+   * only ever stored incomplete user/SP ids (pre-preserve wipe bug) rebuild
+   * both baselines once via full delta rounds, then preserve ids thereafter.
+   */
+  parentIdsBaselineVersion?: number;
 
   // Connector-owned time-window cursors for endpoints that don't support
   // delta queries (audit logs, sign-in logs). lastSyncStarted and
