@@ -133,6 +133,37 @@ describe('acquireAccessToken', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────────
+  // Test Case: Rate limit (429) - should not retry (workers emit Delayed)
+  // ────────────────────────────────────────────────────────────────────────────
+  it('should throw on 429 rate limit without retry', async () => {
+    const mockError: Partial<AxiosError> = {
+      isAxiosError: true,
+      response: {
+        status: 429,
+        statusText: 'Too Many Requests',
+        data: {},
+        headers: { 'retry-after': '30' },
+        config: {} as any,
+      },
+      message: 'Rate limited',
+      name: 'AxiosError',
+      config: {} as any,
+      toJSON: () => ({}),
+    };
+
+    jest.spyOn(axios, 'isAxiosError').mockReturnValueOnce(true);
+    mockedAxios.post.mockRejectedValueOnce(mockError);
+
+    await expect(
+      acquireAccessToken('contoso.com', '12345678-1234-1234-1234-123456789012', 'secret')
+    ).rejects.toMatchObject({
+      response: { status: 429 },
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+  });
+
+  // ────────────────────────────────────────────────────────────────────────────
   // Test Case: Bad request (400) - should not retry
   // ────────────────────────────────────────────────────────────────────────────
   it('should throw on 400 bad request without retry', async () => {

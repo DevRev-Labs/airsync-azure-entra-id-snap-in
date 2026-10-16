@@ -133,7 +133,7 @@ export interface State {
 
   // Connector-owned time-window cursors for endpoints that don't support
   // delta queries (audit logs, sign-in logs). lastSyncStarted and
-  // lastSuccessfulSyncStarted are SDK-managed (see @devrev/ts-adaas SdkState)
+  // lastSuccessfulSyncStarted are SDK-managed (see @devrev/airsync-sdk sdkState)
   // and must not be redeclared or written to here.
   lastAuditLogSync?: string;
   lastSignInLogSync?: string;
