@@ -476,11 +476,14 @@ export function normalizeAppRole(
  * - App Role: The specific permission being granted
  *
  * @param assignment - Raw app role assignment from /servicePrincipals/{id}/appRoleAssignedTo
+ * @param appRoleNameMap - Optional lookup of app role display names
+ * @param modifiedDate - Optional sync timestamp so incremental runs refresh modified_date
  * @returns Normalized item representing a role assignment
  */
 export function normalizeAppRoleAssignment(
   assignment: EntraAppRoleAssignment,
-  appRoleNameMap?: Map<string, string>
+  appRoleNameMap?: Map<string, string>,
+  modifiedDate?: string
 ): NormalizedItem {
   // Generate a meaningful display name for the assignment
   // Format: "Principal → Role @ Resource"
@@ -505,7 +508,9 @@ export function normalizeAppRoleAssignment(
   return {
     id: assignment.id, // Unique assignment ID (GUID)
     created_date: assignment.createdDateTime || FALLBACK_DATE, // When assignment was created
-    modified_date: assignment.createdDateTime || FALLBACK_DATE, // Use creation date as modified date
+    // Prefer sync timestamp on incremental so loaders see a fresh modified_date
+    // (assignments have no Graph modifiedDateTime).
+    modified_date: modifiedDate || assignment.createdDateTime || FALLBACK_DATE,
     data: {
       display_name: displayName, // Human-readable title shown in DevRev UI
       principal_id: assignment.principalId, // ID of user/group/SP receiving the role

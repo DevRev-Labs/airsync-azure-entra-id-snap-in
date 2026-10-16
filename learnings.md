@@ -73,3 +73,12 @@ Recorded issues and fixes discovered during connector code generation or modific
 **Source:** Copilot review on PR #32 for marketplace parent-ID / timeout changes
 **Problem:** Audit-fallback timeout discarded buffered users with no resume index; delete-only user deltas pruned ids only in memory before advancing the cursor; SP 410 cleared the delta link but kept stale ids (unlike users); upgrading tenants kept incomplete pre-preserve id lists forever.
 **Fix:** Checkpoint audit-fallback with flush + `fallbackIndex` / `deltaPhaseCompleted`; always persist `users.ids` after prune; clear SP `ids` on expired delta; one-time `parentIdsBaselineVersion` migration forces full users+SP rebuild before preserving again.
+
+---
+
+## L009 — App role assignments and log cursors need the same incremental hygiene as siblings
+
+**Date:** 2026-10-16
+**Source:** Connector-review on marketplace branch (functional observations)
+**Problem:** `normalizeAppRoleAssignment` still used creation-only `modified_date` (missed in L007), and audit/sign-in cursors advanced to extraction end so events arriving mid-run could be skipped on the next sync.
+**Fix:** Accept optional `modifiedDate`/`syncTimestamp` on app role assignments; set `lastAuditLogSync` / `lastSignInLogSync` to the query start timestamp after a successful run.

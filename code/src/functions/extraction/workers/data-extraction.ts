@@ -180,7 +180,7 @@ const USER_NORMALIZATION_VERSION = 3;
 const USER_AUDIT_LOOKBACK_MS = 15 * 60 * 1000;
 
 /** Return a field's length for diagnostics without logging its PII value. */
-function profileValueLength(value: unknown): number {
+function getProfileValueLength(value: unknown): number {
   return typeof value === 'string' ? value.length : 0;
 }
 
@@ -456,7 +456,7 @@ processTask({
             deltaPhaseCompleted?: boolean;
             pendingDeltaLink?: string;
             fallbackIndex?: number;
-          }) => {
+          }): void => {
             const prev = adapter.state.userAuditPreflight;
             adapter.state.userAuditPreflight = {
               auditStart: patch.auditStart ?? prev?.auditStart,
@@ -670,9 +670,9 @@ processTask({
                     JSON.stringify({
                       event: 'entra_user_normalized',
                       user_id: item.id,
-                      display_name_length: profileValueLength(item.data.display_name),
-                      full_name_length: profileValueLength(item.data.full_name),
-                      email_present: profileValueLength(item.data.email) > 0,
+                      display_name_length: getProfileValueLength(item.data.display_name),
+                      full_name_length: getProfileValueLength(item.data.full_name),
+                      email_present: getProfileValueLength(item.data.email) > 0,
                       created_date: item.created_date,
                       modified_date: item.modified_date,
                     })
@@ -1643,7 +1643,9 @@ processTask({
               try {
                 const page = await client.listAppRoleAssignments(spId, innerNextLink);
                 // Pass app role name map to generate better titles
-                const normalized = page.value.map((a) => normalizeAppRoleAssignment(a, appRoleNameMap));
+                const normalized = page.value.map((a) =>
+                  normalizeAppRoleAssignment(a, appRoleNameMap, isIncremental ? syncTimestamp : undefined)
+                );
                 await adapter.getRepo(ENTITY_NAMES.APP_ROLE_ASSIGNMENTS)?.push(normalized);
                 adapter.state.appRoleAssignments.extractedCount += normalized.length;
                 innerNextLink = page['@odata.nextLink'];
@@ -2035,6 +2037,9 @@ processTask({
           // On first sync the cursor is unset — use a bounded 24h window to
           // avoid pulling millions of rows and blowing the Lambda memory
           // budget (LABS-377). Subsequent syncs resume from lastAuditLogSync.
+          // Capture query start before the first page so logs that arrive during
+          // a long extraction are not skipped by advancing the cursor to "now".
+          const queryStartedAt = new Date().toISOString();
           const startDateTime = adapter.state.lastAuditLogSync || new Date(Date.now() - INITIAL_LOG_WINDOW_MS).toISOString();
           let nextLink = adapter.state.directoryAuditLogs.nextLink;
           let page;
@@ -2055,7 +2060,7 @@ processTask({
 
           adapter.state.directoryAuditLogs.completed = true;
           adapter.state.directoryAuditLogs.nextLink = undefined;
-          adapter.state.lastAuditLogSync = new Date().toISOString();
+          adapter.state.lastAuditLogSync = queryStartedAt;
           console.info(`[data-extraction] Directory audit logs extracted: ${adapter.state.directoryAuditLogs.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
@@ -2095,6 +2100,8 @@ processTask({
           // Bounded initial window (see LABS-377). Sign-in logs are especially
           // heavy — a large tenant can emit millions of rows/day with nested
           // deviceDetail/applicationDetail/authenticationDetails payloads.
+          // Capture query start before the first page (same gap fix as audit logs).
+          const queryStartedAt = new Date().toISOString();
           const startDateTime = adapter.state.lastSignInLogSync || new Date(Date.now() - INITIAL_LOG_WINDOW_MS).toISOString();
           let nextLink = adapter.state.signInLogs.nextLink;
           let page;
@@ -2115,7 +2122,7 @@ processTask({
 
           adapter.state.signInLogs.completed = true;
           adapter.state.signInLogs.nextLink = undefined;
-          adapter.state.lastSignInLogSync = new Date().toISOString();
+          adapter.state.lastSignInLogSync = queryStartedAt;
           console.info(`[data-extraction] Sign-in logs extracted: ${adapter.state.signInLogs.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {

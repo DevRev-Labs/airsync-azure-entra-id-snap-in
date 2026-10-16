@@ -175,7 +175,7 @@ processTask({
       }
     } catch (error) {
       // Log the error but don't throw - telemetry failures should never impact snap-in execution
-      console.info('[LabsUsageTracker] Failed to track usage event (non-blocking)', {
+      console.warn('[LabsUsageTracker] Failed to track usage event (non-blocking)', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });

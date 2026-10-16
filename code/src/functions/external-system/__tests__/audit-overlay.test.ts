@@ -8,6 +8,7 @@
  */
 
 import { stripGraphQuote, accumulateAuditOverlay, overlayAuditedUserFields } from '../audit-overlay';
+import { normalizeUser } from '../data-normalization';
 import { EntraUser } from '../types';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -289,9 +290,6 @@ describe('overlayAuditedUserFields', () => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 describe('audit overlay end-to-end: stale GET /users/{id} patched before normalizeUser', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { normalizeUser } = require('../data-normalization');
-
   it('a stale displayName from GET /users/{id} is replaced with the audited newValue', () => {
     const auditProps = [
       { displayName: 'DisplayName', oldValue: '"Alice Smith"', newValue: '"Bob Jones"' },

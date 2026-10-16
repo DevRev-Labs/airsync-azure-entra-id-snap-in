@@ -883,6 +883,24 @@ describe('normalizeAppRoleAssignment', () => {
     expect(result.data.app_role_id).toBe('role-111');
   });
 
+  it('should prefer syncTimestamp for modified_date on incremental', () => {
+    const assignment: EntraAppRoleAssignment = {
+      id: 'assignment-456',
+      principalId: 'user-789',
+      principalType: 'User',
+      principalDisplayName: 'John Doe',
+      resourceId: 'sp-123',
+      resourceDisplayName: 'My Application',
+      appRoleId: 'role-111',
+      createdDateTime: '2024-02-10T11:00:00Z',
+    };
+
+    const result = normalizeAppRoleAssignment(assignment, undefined, '2026-10-16T12:00:00Z');
+
+    expect(result.created_date).toBe('2024-02-10T11:00:00Z');
+    expect(result.modified_date).toBe('2026-10-16T12:00:00Z');
+  });
+
   it('should handle assignment with null created date', () => {
     const assignment: EntraAppRoleAssignment = {
       id: 'assignment-999',
