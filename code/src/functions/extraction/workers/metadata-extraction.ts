@@ -250,22 +250,17 @@ processTask({
  * mapExtensionDataType('String')      // Returns: 'text' (default)
  */
 function mapExtensionDataType(dataType: string): string {
-  // Switch on Azure AD data type and return corresponding DevRev type
   switch (dataType) {
-    // Boolean values → bool type
-    case 'Boolean': return 'bool';
-
-    // 32-bit integers → int type
-    case 'Integer': return 'int';
-
-    // 64-bit integers → int type (DevRev int handles both)
-    case 'LargeInteger': return 'int';
-
-    // DateTime values → timestamp type
-    case 'DateTime': return 'timestamp';
-
-    // Default: map all other types (String, Binary, Unknown) to text
-    // This is a safe fallback since text can represent any value as a string
-    default: return 'text'; // String, Binary, etc.
+    case 'Boolean':
+      return 'bool';
+    case 'Integer':
+    case 'LargeInteger':
+      // DevRev int covers both 32-bit and 64-bit Graph integer types
+      return 'int';
+    case 'DateTime':
+      return 'timestamp';
+    default:
+      // String, Binary, Unknown → text is a safe catch-all
+      return 'text';
   }
 }

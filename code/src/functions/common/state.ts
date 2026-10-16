@@ -139,6 +139,11 @@ export interface State {
   lastSignInLogSync?: string;
 }
 
+/**
+ * Build a fresh connector extraction state with all entities incomplete and
+ * empty ID lists / delta links. Used when starting INITIAL sync and when
+ * resetting per-entity completion flags on incremental Start.
+ */
 export function getInitialState(): State {
   return {
     users: { completed: false, extractedCount: 0, ids: [] },
