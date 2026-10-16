@@ -167,20 +167,23 @@ export async function acquireAccessToken(
         // Extract HTTP status code
         const status = error.response?.status;
 
-        // Don't retry authentication errors (invalid credentials)
-        if (status === 400 || status === 401) {
+        // Don't retry auth failures or rate limits — workers must see 429 so
+        // they can emit DataExtractionDelayed instead of exhausting retries
+        // and failing the sync as DataExtractionError.
+        if (status === 400 || status === 401 || status === 429) {
           // 400 = Bad Request (malformed request)
           // 401 = Unauthorized (invalid client ID or secret)
-          throw error; // These are non-retryable - fail immediately
+          // 429 = Too Many Requests (token endpoint throttle)
+          throw error;
         }
       }
 
       // Store error for potential re-throw after all retries
       lastError = error;
 
-      // Wait before next retry using linear backoff
-      // attempt 1: wait 1000ms, attempt 2: wait 2000ms, attempt 3: wait 3000ms
-      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+      // Exponential backoff: 1s, 2s, 4s (matches EntraIDClient.get)
+      const backoffMs = Math.pow(2, attempt - 1) * 1000;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
   }
 

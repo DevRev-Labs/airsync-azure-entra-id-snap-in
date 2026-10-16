@@ -9,5 +9,8 @@ module.exports = {
     '!src/**/*.d.ts',
     '!src/**/__tests__/**',
     '!src/main.ts',
+    '!src/index.ts',
+    '!src/function-factory.ts',
+    '!src/functions/extraction/index.ts',
   ],
 };

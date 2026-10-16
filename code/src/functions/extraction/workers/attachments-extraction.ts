@@ -12,46 +12,17 @@
  * policy documents), the implementation should go here.
  */
 
-import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+import { ExtractionAdapter, processExtractionTask } from '@devrev/airsync-sdk';
 
-// Import the State type to satisfy the generic WorkerAdapter type parameter
 import { LabsUsageTracker } from '../../common/labs-usage';
 import { State } from '../../common/state';
 
 /**
- * Register the attachment extraction task with the ADaaS worker framework.
- *
- * `processTask` must be called at the module's top level — not inside a function —
- * because the ADaaS framework resolves and invokes the exported task at module load time.
+ * Register the attachment extraction task with the AirSync worker framework.
+ * Soft-timeout defaults to Progress; this phase has no binary attachments.
  */
-processTask({
-  /**
-   * onTimeout handler — called when the ADaaS platform signals that the worker
-   * is approaching its execution time limit.
-   *
-   * For attachments, we emit `AttachmentExtractionProgress` (a no-op progress event)
-   * to acknowledge the timeout without failing the extraction.
-   *
-   * @param adapter - The worker adapter providing event access and event emission
-   */
-  onTimeout: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
-    // Emit a progress event to acknowledge the timeout gracefully
-    await adapter.emit(ExtractorEventType.AttachmentExtractionProgress);
-  },
-
-  /**
-   * task handler — the main business logic for attachment extraction.
-   *
-   * This connector does not have any binary attachments to extract from Azure Entra ID,
-   * so we immediately emit the done event to signal successful (empty) completion.
-   *
-   * @param adapter - The worker adapter providing event access and event emission
-   */
-  task: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
-    // No attachments to extract — immediately signal completion
-    // TODO: Implement attachment extraction if Azure Entra ID adds attachment endpoints in the future
-    await adapter.emit(ExtractorEventType.AttachmentExtractionDone);
-
+processExtractionTask({
+  task: async ({ adapter }: { adapter: ExtractionAdapter<State> }) => {
     // Track usage event for marketplace telemetry (non-blocking)
     // This runs at the very end of the entire snap-in execution (after all extraction phases)
     // Wrapped in try-catch to ensure telemetry issues never impact the snap-in functionality
@@ -99,7 +70,7 @@ processTask({
           console.info('[LabsUsageTracker] No entities completed extraction, skipping usage tracking', {
             reason: 'No completed entities found in state',
           });
-          return;
+          return { status: 'success' };
         }
 
         console.info('[LabsUsageTracker] Extraction completed successfully, building usage payload');
@@ -175,10 +146,12 @@ processTask({
       }
     } catch (error) {
       // Log the error but don't throw - telemetry failures should never impact snap-in execution
-      console.warn('[LabsUsageTracker] Failed to track usage event (non-blocking)', {
+      console.info('[LabsUsageTracker] Failed to track usage event (non-blocking)', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });
     }
+
+    return { status: 'success' };
   },
 });

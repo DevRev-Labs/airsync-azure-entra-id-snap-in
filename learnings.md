@@ -82,3 +82,21 @@ Recorded issues and fixes discovered during connector code generation or modific
 **Source:** Connector-review on marketplace branch (functional observations)
 **Problem:** `normalizeAppRoleAssignment` still used creation-only `modified_date` (missed in L007), and audit/sign-in cursors advanced to extraction end so events arriving mid-run could be skipped on the next sync.
 **Fix:** Accept optional `modifiedDate`/`syncTimestamp` on app role assignments; set `lastAuditLogSync` / `lastSignInLogSync` to the query start timestamp after a successful run.
+
+---
+
+## L010 — Non-blocking Labs telemetry failures stay at info
+
+**Date:** 2026-10-16
+**Source:** User correction after connector-review I3 suggested `console.warn`
+**Problem:** Review guidance promoted telemetry catch-block logs to `console.warn`, but Labs usage tracking is intentionally non-blocking and must not look like connector failures in warn/error queries.
+**Fix:** Keep `[LabsUsageTracker] Failed to track usage event` at `console.info` in attachments-extraction.
+
+---
+
+## L011 — Token 429 must surface as Delayed; metadata timeout must Progress
+
+**Date:** 2026-10-16
+**Source:** Connector-review scorecard (C3/C5/C8/C15) on marketplace branch
+**Problem:** Metadata `onTimeout` emitted Done; token acquisition retried 429 with linear backoff so exhausted rate limits became DataExtractionError; audit-fallback buffered all users until end/timeout.
+**Fix:** Migrate to `@devrev/airsync-sdk` 2.0 (TaskResult Progress default for metadata); throw token 429 immediately with exponential backoff for other retries and map outer catch to delay; flush audit-fallback every `AUDIT_FALLBACK_PUSH_BATCH_SIZE`.

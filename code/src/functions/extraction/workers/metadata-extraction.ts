@@ -76,7 +76,7 @@
  */
 
 // Import DevRev Airdrop framework types and functions
-import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+import { ExtractionAdapter, processExtractionTask } from '@devrev/airsync-sdk';
 
 // Import common utilities and security functions
 import { validateConnectionData } from '../../common/security';
@@ -88,24 +88,10 @@ import baseEdm from '../../external-system/external_domain_metadata.json';
 // ══════════════════════════════════════════════════════════════════════════════
 // PROCESSTASK: DevRev Airdrop Framework Entry Point
 // ══════════════════════════════════════════════════════════════════════════════
-// This is the main entry point invoked by the DevRev Airdrop framework
-// Defines two callbacks: onTimeout (if worker exceeds time limit) and task (main logic)
-processTask({
-  // ────────────────────────────────────────────────────────────────────────────
-  // TIMEOUT HANDLER
-  // ────────────────────────────────────────────────────────────────────────────
-  // If metadata extraction takes too long (unlikely), emit completion event
-  // This ensures the sync can proceed even if extension discovery is incomplete
-  onTimeout: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
-    // Emit done event to allow data extraction to begin
-    await adapter.emit(ExtractorEventType.MetadataExtractionDone);
-  },
-
-  // ────────────────────────────────────────────────────────────────────────────
-  // MAIN TASK HANDLER
-  // ────────────────────────────────────────────────────────────────────────────
-  // Executes the metadata extraction and EDM enrichment workflow
-  task: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
+// Main entry point. Soft-timeout defaults to Progress (incomplete metadata
+// must not be published as Done — matches C3 / resumable metadata phase).
+processExtractionTask({
+  task: async ({ adapter }: { adapter: ExtractionAdapter<State> }) => {
     try {
       // ── Step 1: Extract and Validate Connection Credentials ────────────────
       // Get Azure AD connection details from DevRev event payload
@@ -202,20 +188,13 @@ processTask({
       // This EDM will be used by data extraction worker to properly extract all fields
       await adapter.getRepo('external_domain_metadata')?.push([enrichedEdm]);
 
-      // ── Step 8: Emit Completion Event ──────────────────────────────────────
-      // Signal to Airdrop framework that metadata extraction is complete
-      // This triggers the data extraction worker to begin
-      await adapter.emit(ExtractorEventType.MetadataExtractionDone);
+      return { status: 'success' };
     } catch (error) {
-      // ── Fatal Error Handler ─────────────────────────────────────────────────
-      // If authentication or EDM publishing fails, emit error event
-      // This prevents data extraction from starting with invalid/missing metadata
       console.error('[metadata-extraction] Failed:', formatError(error));
-
-      // Emit error event with formatted error message
-      await adapter.emit(ExtractorEventType.MetadataExtractionError, {
-        error: { message: formatError(error) }, // DevRev-compatible error structure
-      });
+      return {
+        status: 'error',
+        error: { message: formatError(error) },
+      };
     }
   },
 });

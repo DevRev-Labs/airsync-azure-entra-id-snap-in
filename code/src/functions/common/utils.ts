@@ -8,6 +8,8 @@
 // Import axios library for HTTP error detection
 import axios from 'axios';
 
+import { MAX_ERROR_BODY_LENGTH } from './constants';
+
 /**
  * Asynchronous delay utility using Promise-based setTimeout
  *
@@ -71,7 +73,7 @@ export function formatError(error: unknown): string {
     const bodyStr =
       body === undefined
         ? ''
-        : ` | body: ${typeof body === 'string' ? body : JSON.stringify(body).slice(0, 500)}`;
+        : ` | body: ${typeof body === 'string' ? body.slice(0, MAX_ERROR_BODY_LENGTH) : JSON.stringify(body).slice(0, MAX_ERROR_BODY_LENGTH)}`;
     const stack = error.stack ? ` | stack: ${error.stack}` : '';
     return `HTTP ${status}: ${statusText}${bodyStr}${stack}`;
   }
