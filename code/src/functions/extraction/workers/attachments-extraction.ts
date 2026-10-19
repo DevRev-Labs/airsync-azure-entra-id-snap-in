@@ -1,8 +1,8 @@
 /**
  * Attachments extraction worker for the Azure Entra ID AirSync connector.
  *
- * This worker handles EXTRACTION_ATTACHMENTS_START and EXTRACTION_ATTACHMENTS_CONTINUE
- * events dispatched by the DevRev ADaaS platform.
+ * This worker handles START_EXTRACTING_ATTACHMENTS and CONTINUE_EXTRACTING_ATTACHMENTS
+ * events dispatched by the DevRev AirSync platform.
  *
  * Azure Entra ID does not include binary file attachments, so this worker is a no-op
  * stub that immediately signals completion. It is required by the ADaaS framework

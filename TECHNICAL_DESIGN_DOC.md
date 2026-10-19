@@ -285,7 +285,7 @@ Extension properties are discovered at the start of full sync (before step 1) by
 
 ```mermaid
 flowchart TD
-    START["processTask() starts\ndata-extraction.ts"] --> INIT["Initialize API client\nadapter.initializeRepos()"]
+    START["processExtractionTask() starts\ndata-extraction.ts"] --> INIT["Initialize API client\nadapter.initializeRepos()"]
     INIT --> CHECK_USERS{"users\ncompleted?"}
 
     %% Users (paginated with delta)
@@ -293,7 +293,7 @@ flowchart TD
     CHECK_USERS -- "No" --> USERS_LOOP["extractUsers()"]
     USERS_LOOP --> USERS_TIMEOUT{"adapter.isTimeout?"}
     USERS_TIMEOUT -- "Yes" --> WAIT_TIMEOUT["await wait(180_000)\nno state save needed"]
-    WAIT_TIMEOUT --> RETURN_TIMEOUT["return\n(onTimeout emits DataExtractionProgress)"]
+    WAIT_TIMEOUT --> RETURN_TIMEOUT["return\n(SDK reports DataExtractionProgress)"]
     USERS_TIMEOUT -- "No" --> USERS_FETCH["Fetch page: GET /v1.0/users\nor delta URL from state"]
     USERS_FETCH --> USERS_TIMEOUT2{"adapter.isTimeout?\n(post-fetch)"}
     USERS_TIMEOUT2 -- "Yes" --> WAIT_TIMEOUT
@@ -361,7 +361,7 @@ flowchart TD
     CONTACTS_PAGES --> ALL_DONE
 
     ALL_DONE["All entities extracted"] --> SYNC_TS["Save lastSuccessfulSyncStarted"]
-    SYNC_TS --> EMIT_DONE["adapter.emit(DataExtractionDone)"]
+    SYNC_TS --> EMIT_DONE["return success (TaskResult)"]
 
     style START fill:#e1f5fe
     style EMIT_DONE fill:#c8e6c9
@@ -386,46 +386,46 @@ sequenceDiagram
     participant ExternalAPI as Microsoft Graph API
 
     Note over Platform,ExternalAPI: Phase 1 — Authentication & Sync Units
-    Platform->>Adapter: EXTRACTION_EXTERNAL_SYNC_UNITS_START (connection_data with OAuth credentials)
-    Adapter->>SyncUnitsWorker: processTask()
+    Platform->>Adapter: START_EXTRACTING_EXTERNAL_SYNC_UNITS (connection_data with OAuth credentials)
+    Adapter->>SyncUnitsWorker: processExtractionTask()
     SyncUnitsWorker->>APIClient: getOrganization()
     APIClient->>ExternalAPI: POST /oauth2/v2.0/token (acquire access token)
     ExternalAPI-->>APIClient: { access_token, expires_in }
     APIClient->>ExternalAPI: GET /v1.0/organization
     ExternalAPI-->>APIClient: { value: [{ id, displayName }] }
-    SyncUnitsWorker->>Adapter: emit(ExternalSyncUnitsDone, [{ id: tenantId, name: tenantName }])
+    SyncUnitsWorker->>Adapter: repo.push([{ id: tenantId, name: tenantName }]) + return success
 
     Note over Platform,ExternalAPI: Phase 2 — Metadata Extraction
-    Platform->>Adapter: EXTRACTION_METADATA_START
-    Adapter->>MetadataWorker: processTask()
+    Platform->>Adapter: START_EXTRACTING_METADATA
+    Adapter->>MetadataWorker: processExtractionTask()
     MetadataWorker->>APIClient: discoverExtensionProperties()
     APIClient->>ExternalAPI: GET /v1.0/applications/{appId}/extensionProperties
     ExternalAPI-->>APIClient: { value: ExtensionProperty[] }
     MetadataWorker->>MetadataWorker: Build EDM with discovered custom fields
     MetadataWorker->>Adapter: repo('external_domain_metadata').push([edm])
-    MetadataWorker->>Adapter: emit(MetadataExtractionDone)
+    MetadataWorker->>Adapter: return success (TaskResult)
 
     Note over Platform,ExternalAPI: Phase 3 — Data Extraction
-    Platform->>Adapter: EXTRACTION_DATA_START
-    Adapter->>DataWorker: processTask()
+    Platform->>Adapter: START_EXTRACTING_DATA
+    Adapter->>DataWorker: processExtractionTask()
     loop For each entity in order (users → groups → groupMembers → ...)
         DataWorker->>APIClient: fetchEntityPage(cursor or deltaLink)
         APIClient->>ExternalAPI: GET /v1.0/{entity}?$top=999 or delta URL
         ExternalAPI-->>APIClient: { value: [...], @odata.nextLink or @odata.deltaLink }
         DataWorker->>Adapter: repo('{entity}').push(normalized)
     end
-    DataWorker->>Adapter: emit(DataExtractionDone)
+    DataWorker->>Adapter: return success (TaskResult)
 
     Note over Platform,ExternalAPI: Phase 3 — Timeout & Re-invocation
-    Platform->>Adapter: EXTRACTION_DATA_START
-    Adapter->>DataWorker: processTask()
+    Platform->>Adapter: START_EXTRACTING_DATA
+    Adapter->>DataWorker: processExtractionTask()
     DataWorker->>APIClient: fetchEntityPage(cursor)
     Note right of DataWorker: adapter.isTimeout === true
     Note right of DataWorker: State already current from last push-and-update
     DataWorker->>DataWorker: await wait(180_000) — no state save needed
-    Adapter-->>Platform: onTimeout → emit(DataExtractionProgress)
-    Platform->>Adapter: EXTRACTION_DATA_CONTINUE (state restored from last push-and-update)
-    Adapter->>DataWorker: processTask() — resumes from saved cursor
+    Adapter-->>Platform: SDK reports DataExtractionProgress on timeout
+    Platform->>Adapter: CONTINUE_EXTRACTING_DATA (state restored from last push-and-update)
+    Adapter->>DataWorker: processExtractionTask() — resumes from saved cursor
 ```
 
 #### 4.2a.2 Within-Phase: Single Entity Extraction Sequence
@@ -449,7 +449,7 @@ sequenceDiagram
             alt Timeout
                 Note right of DW: State already current from last push-and-update
                 DW->>DW: await wait(180_000)
-                DW-->>DW: return (onTimeout emits DataExtractionProgress)
+                DW-->>DW: return (SDK reports DataExtractionProgress)
             end
             DW->>API: fetchPage(nextLink or initial URL)
             API->>Ext: GET /v1.0/{entity} or nextLink URL
@@ -520,7 +520,7 @@ sequenceDiagram
     API->>Ext: GET /v1.0/users
     Ext-->>API: HTTP 429 (Retry-After: 30)
     API-->>DW: Error: 429
-    DW->>Adapter: emit(DataExtractionDelayed, { delay: 30 })
+    DW->>Adapter: return delay (delaySeconds: 30)
     Note over Adapter: Platform waits 30s, re-invokes
 
     Note over DW,Adapter: Scenario 2 — Auth Error (401)
@@ -528,7 +528,7 @@ sequenceDiagram
     API->>Ext: GET /v1.0/users
     Ext-->>API: HTTP 401 (Unauthorized)
     API-->>DW: Error: 401
-    DW->>Adapter: emit(DataExtractionDelayed, { delay: 60 })
+    DW->>Adapter: return delay (delaySeconds: 60)
     Note over Adapter: Platform refreshes token if possible, re-invokes
 
     Note over DW,Adapter: Scenario 3 — Delta Token Expired (410)
@@ -558,7 +558,7 @@ sequenceDiagram
 | After each API fetch (all entities) | `adapter.isTimeout === true` | `await wait(180_000)` → return | Push-and-update after previous page's `push()` |
 | Before each group/role parent iteration | `adapter.isTimeout === true` | `await wait(180_000)` → return | Push-and-update saves `currentGroupIndex`/`currentRoleIndex` + inner cursor |
 
-**Why no explicit state save?** The push-and-update pattern saves state after every `push()`. When `isTimeout` fires, state already reflects the last successfully processed position. The wait simply lets the lambda reach its natural timeout. The SDK's `onTimeout` handler then auto-emits `DataExtractionProgress` and persists state.
+**Why no explicit state save?** The push-and-update pattern saves state after every `push()`. When `isTimeout` fires, state already reflects the last successfully processed position. After the brief wait the task returns `{ status: 'progress' }`; the SDK persists state and emits `DataExtractionProgress`.
 
 ### 4.4 `push()` Call Locations (pushAndUpdate)
 
@@ -713,12 +713,12 @@ Error occurs during API call
     │
     ├── Is it rate-limited (429)?
     │   └── YES → Read Retry-After header (default 64)
-    │           → adapter.emit(DataExtractionDelayed, { delay: retryAfterSeconds })
+    │           → return delay (delaySeconds: retryAfterSeconds)
     │           → return (terminal)
     │
     ├── Is it auth error (401)?
     │   └── YES → console.warn('[extractData] Auth error — requesting delay for token refresh')
-    │           → adapter.emit(DataExtractionDelayed, { delay: 60 })
+    │           → return delay (delaySeconds: 60)
     │           → return
     │
     ├── Is it permission error (403)?
@@ -734,11 +734,11 @@ Error occurs during API call
     │   └── YES → Retry up to 3 times with exponential backoff (1s, 2s, 4s)
     │           → If all retries fail:
     │               → console.error('[extractData] Max retries exceeded')
-    │               → adapter.emit(DataExtractionError, { error: { message } })
+    │               → return error (TaskResult)
     │
     └── Non-retryable (400, other)
         └── console.error('[extractData] Non-retryable error')
-            → adapter.emit(DataExtractionError, { error: { message } })
+            → return error (TaskResult)
 ```
 
 ### 5.3 Error Formatting

@@ -31,14 +31,14 @@
     "event_context": {
       "callback_url": "https://api.devrev.ai/internal/airdrop.external-extractor.message",
       "dev_org_id": "DEV-1",
-      "dev_user_id": "DEVU-1",
-      "external_system": "azure-entra-id",
+      "dev_uid": "DEVU-1",
+      "external_system_id": "azure-entra-id",
       "external_system_type": "ADaaS",
       "import_slug": "airdrop-azure-entra-id",
       "mode": "INITIAL",
       "external_sync_unit_id": "your-tenant-id",
       "worker_data_url": "https://api.devrev.ai/internal/airdrop.external-worker"
     },
-    "event_type": "EXTRACTION_DATA_START"
+    "event_type": "CONTINUE_EXTRACTING_DATA"
   }
 }

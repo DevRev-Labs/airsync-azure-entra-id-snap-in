@@ -19,7 +19,7 @@ import {
   normalizeUser,
   normalizeGroup,
   normalizeGroupMember,
-  normalizeGroupMemberRemoval,
+  normalizeRemovedGroupMember,
   normalizeDirectoryRole,
   normalizeApplication,
   normalizeServicePrincipal,
@@ -476,8 +476,8 @@ describe('incremental modified_date and membership removal', () => {
     expect(normalizeGroup(group).modified_date).toBe('2020-01-01T00:00:00Z');
   });
 
-  it('normalizeGroupMemberRemoval emits remove_member_ids with the same composite id', () => {
-    const result = normalizeGroupMemberRemoval('user-1', 'group-1', syncTime);
+  it('normalizeRemovedGroupMember emits remove_member_ids with the same composite id', () => {
+    const result = normalizeRemovedGroupMember('user-1', 'group-1', syncTime);
     expect(result.id).toBe(normalizeGroupMember({ id: 'user-1' }, 'group-1').id);
     expect(result.data).toEqual({
       member_id: 'user-1',

@@ -156,7 +156,7 @@ import {
   normalizeDirectoryRole,
   normalizeGroup,
   normalizeGroupMember,
-  normalizeGroupMemberRemoval,
+  normalizeRemovedGroupMember,
   normalizeOrgContact,
   normalizeServicePrincipal,
   normalizeUser,
@@ -673,6 +673,7 @@ processExtractionTask({
               usersToNormalize.length = 0;
             };
 
+            let hydrationNotFound = 0;
             while (userIdx < activeItems.length) {
               if (isIncremental && adapter.isTimeout) {
                 await flushHydratedUsers();
@@ -692,9 +693,7 @@ processExtractionTask({
 
               const hydratedUser = await client.getUser(user.id);
               if (!hydratedUser) {
-                console.warn(
-                  JSON.stringify({ event: 'entra_user_hydration_not_found', user_id: user.id })
-                );
+                hydrationNotFound++;
                 userIdx++;
                 continue;
               }
@@ -713,6 +712,11 @@ processExtractionTask({
               userIdx++;
             }
 
+            if (hydrationNotFound > 0) {
+              console.warn(
+                JSON.stringify({ event: 'entra_user_hydration_not_found', count: hydrationNotFound })
+              );
+            }
             await flushHydratedUsers();
 
             // ───────────────────────────────────────────────────────────────────
@@ -958,7 +962,7 @@ processExtractionTask({
                   if (m['@odata.type'] && m['@odata.type'] !== '#microsoft.graph.user') continue;
                   memberRecords.push(
                     m['@removed']
-                      ? normalizeGroupMemberRemoval(m.id, g.id, syncTimestamp)
+                      ? normalizeRemovedGroupMember(m.id, g.id, syncTimestamp)
                       : normalizeGroupMember(m, g.id, syncTimestamp)
                   );
                 }
@@ -1325,13 +1329,29 @@ processExtractionTask({
             // the 10-min soft timeout. We check isTimeout INSIDE the loop
             // and resume from currentDeviceIndex on the next invocation
             // instead of re-enriching from device 0.
-            let deviceIdx = adapter.state.devices.currentDeviceIndex ?? 0;
+            // Devices before currentDeviceIndex were enriched and pushed by the
+            // previous invocation; only the remainder of this page is pushed now.
+            let flushedIdx = adapter.state.devices.currentDeviceIndex ?? 0;
+            let deviceIdx = flushedIdx;
             let ownerFailures = 0;
             let detailFailures = 0;
+
+            const flushEnrichedDevices = async (): Promise<void> => {
+              if (deviceIdx > flushedIdx) {
+                const normalized = activeItems
+                  .slice(flushedIdx, deviceIdx)
+                  .map((d) => normalizeDevice(d, isIncremental ? syncTimestamp : undefined));
+                await adapter.getRepo(ENTITY_NAMES.DEVICES)?.push(normalized);
+                adapter.state.devices.extractedCount += normalized.length;
+                flushedIdx = deviceIdx;
+              }
+              adapter.state.devices.currentDeviceIndex = deviceIdx;
+              adapter.state.devices.nextLink = nextLink; // re-fetch this same page on resume
+            };
+
             while (deviceIdx < activeItems.length) {
               if (adapter.isTimeout) {
-                adapter.state.devices.currentDeviceIndex = deviceIdx;
-                adapter.state.devices.nextLink = nextLink; // re-fetch this same page on resume
+                await flushEnrichedDevices();
                 await wait(ADAPTER_TIMEOUT_DELAY_MS);
                 return { status: 'progress' };
               }
@@ -1346,6 +1366,10 @@ processExtractionTask({
                   device.registeredOwnerDisplayName = owner.displayName;
                 }
               } catch (ownerError) {
+                if (isRateLimitError(ownerError) || isAuthError(ownerError)) {
+                  await flushEnrichedDevices();
+                  throw ownerError;
+                }
                 ownerFailures++;
               }
 
@@ -1355,6 +1379,10 @@ processExtractionTask({
                 device.model = details.model;
                 device.profileType = details.profileType;
               } catch (detailsError) {
+                if (isRateLimitError(detailsError) || isAuthError(detailsError)) {
+                  await flushEnrichedDevices();
+                  throw detailsError;
+                }
                 detailFailures++;
               }
 
@@ -1367,12 +1395,7 @@ processExtractionTask({
               );
             }
 
-            const normalized = activeItems.map((d) =>
-              normalizeDevice(d, isIncremental ? syncTimestamp : undefined)
-            );
-            await adapter.getRepo(ENTITY_NAMES.DEVICES)?.push(normalized);
-
-            adapter.state.devices.extractedCount += normalized.length;
+            await flushEnrichedDevices();
             // Page fully enriched — reset the per-page cursor before
             // advancing to the next page's nextLink.
             adapter.state.devices.currentDeviceIndex = 0;
@@ -1517,6 +1540,8 @@ processExtractionTask({
                 }
               }
             } catch (spError) {
+              // 429/401 must surface as a delay so throttled children aren't dropped.
+              if (isRateLimitError(spError) || isAuthError(spError)) throw spError;
               // Non-fatal: skip this SP and continue
               spFailures++;
             }
@@ -1583,6 +1608,8 @@ processExtractionTask({
                 innerNextLink = page['@odata.nextLink'];
                 adapter.state.appRoleAssignments.currentParentNextLink = innerNextLink;
               } catch (spError) {
+                // 429/401 must surface as a delay so throttled children aren't dropped.
+                if (isRateLimitError(spError) || isAuthError(spError)) throw spError;
                 // Non-fatal: skip this SP and continue
                 spFailures++;
                 break;
@@ -1652,6 +1679,8 @@ processExtractionTask({
                 adapter.state.authenticationMethods.extractedCount += normalized.length;
               }
             } catch (userError) {
+              // 429/401 must surface as a delay so throttled children aren't dropped.
+              if (isRateLimitError(userError) || isAuthError(userError)) throw userError;
               // Non-fatal: skip this user and continue
               userFailures++;
             }
@@ -1750,6 +1779,8 @@ processExtractionTask({
                 adapter.state.licenseAssignments.extractedCount += normalized.length;
               }
             } catch (userError) {
+              // 429/401 must surface as a delay so throttled children aren't dropped.
+              if (isRateLimitError(userError) || isAuthError(userError)) throw userError;
               // Non-fatal: skip this user and continue
               userFailures++;
             }

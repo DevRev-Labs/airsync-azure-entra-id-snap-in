@@ -4,9 +4,12 @@ import {
   processExtractionTask,
 } from '@devrev/airsync-sdk';
 
-import { EXTERNAL_SYNC_UNITS_BATCH_SIZE } from '../../common/constants';
+import {
+  DEFAULT_RATE_LIMIT_DELAY_SECONDS,
+  EXTERNAL_SYNC_UNITS_BATCH_SIZE,
+} from '../../common/constants';
 import { State } from '../../common/state';
-import { formatError } from '../../common/utils';
+import { formatError, getRetryAfterSeconds, isRateLimitError } from '../../common/utils';
 import { acquireAccessToken, EntraIDClient } from '../../external-system/entra-id-api';
 
 processExtractionTask({
@@ -39,6 +42,14 @@ processExtractionTask({
 
       return { status: 'success' };
     } catch (error) {
+      // This phase is non-resumable, so the SDK reports a delay as an error;
+      // returning it still carries Retry-After instead of a generic failure.
+      if (isRateLimitError(error)) {
+        return {
+          status: 'delay',
+          delaySeconds: getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS),
+        };
+      }
       console.error('[external-sync-units-extraction] Failed:', formatError(error));
       return {
         status: 'error',
