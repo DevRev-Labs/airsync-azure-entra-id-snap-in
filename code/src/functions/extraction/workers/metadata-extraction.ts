@@ -79,9 +79,10 @@
 import { ExtractionAdapter, processExtractionTask } from '@devrev/airsync-sdk';
 
 // Import common utilities and security functions
+import { DEFAULT_RATE_LIMIT_DELAY_SECONDS } from '../../common/constants';
 import { validateConnectionData } from '../../common/security';
 import { State } from '../../common/state';
-import { formatError } from '../../common/utils';
+import { formatError, getRetryAfterSeconds, isRateLimitError } from '../../common/utils';
 import { acquireAccessToken, EntraIDClient } from '../../external-system/entra-id-api';
 import baseEdm from '../../external-system/external_domain_metadata.json';
 
@@ -128,7 +129,10 @@ processExtractionTask({
         const userExtensionFields: Record<string, unknown> = {};
 
         // ── Iterate Through Each Application ──────────────────────────────────
+        let appFailures = 0;
+        let lastAppError: unknown;
         for (const app of apps) {
+          if (adapter.isTimeout) return { status: 'progress' };
           try {
             // Query this application's registered extension properties
             const extensions = await client.listExtensionProperties(app.id);
@@ -156,8 +160,15 @@ processExtractionTask({
             // ── Per-Application Error (Non-Fatal) ─────────────────────────────
             // If we can't list extensions for one app, skip it and continue
             // This prevents one bad application from blocking all extension discovery
-            console.warn(`[metadata-extraction] Could not load extensions for app ${app.id}: ${formatError(extError)}`);
+            if (isRateLimitError(extError)) throw extError;
+            appFailures++;
+            lastAppError = extError;
           }
+        }
+        if (appFailures > 0) {
+          console.warn(
+            `[metadata-extraction] Could not load extensions for ${appFailures}/${apps.length} apps; last error: ${formatError(lastAppError)}`
+          );
         }
 
         // ── Step 6: Merge Extension Fields into EDM ───────────────────────────
@@ -176,7 +187,9 @@ processExtractionTask({
       } catch (discoverError) {
         // ── Global Discovery Error (Non-Fatal) ─────────────────────────────────
         // If entire extension discovery process fails, fall back to static metadata
-        // This ensures connector can function even without custom attributes
+        // This ensures connector can function even without custom attributes.
+        // Throttling is the exception: retry later rather than drop extension fields.
+        if (isRateLimitError(discoverError)) throw discoverError;
         console.warn(`[metadata-extraction] Extension property discovery failed, using static metadata: ${formatError(discoverError)}`);
       }
 
@@ -190,6 +203,12 @@ processExtractionTask({
 
       return { status: 'success' };
     } catch (error) {
+      if (isRateLimitError(error)) {
+        return {
+          status: 'delay',
+          delaySeconds: getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS),
+        };
+      }
       console.error('[metadata-extraction] Failed:', formatError(error));
       return {
         status: 'error',

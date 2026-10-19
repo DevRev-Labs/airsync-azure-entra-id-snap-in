@@ -100,3 +100,21 @@ Recorded issues and fixes discovered during connector code generation or modific
 **Source:** Connector-review scorecard (C3/C5/C8/C15) on marketplace branch
 **Problem:** Metadata `onTimeout` emitted Done; token acquisition retried 429 with linear backoff so exhausted rate limits became DataExtractionError; audit-fallback buffered all users until end/timeout.
 **Fix:** Migrate to `@devrev/airsync-sdk` 2.0 (TaskResult Progress default for metadata); throw token 429 immediately with exponential backoff for other retries and map outer catch to delay; flush audit-fallback every `AUDIT_FALLBACK_PUSH_BATCH_SIZE`.
+
+---
+
+## L012 — SDK v2 migration must verify test/ and fixtures, not just src/
+
+**Date:** 2026-10-19
+**Source:** Connector-review after the `@devrev/airsync-sdk` 2.0 migration
+**Problem:** tsc/lint/jest only cover `src/`, so the migration missed that `code/test/runner.ts` needs `@devrev/typescript-sdk` (no longer a transitive dependency in v2) and that fixtures still used legacy `EXTRACTION_*` event types and removed `event_context` aliases — breaking the local test server and fixture runs.
+**Fix:** Add `@devrev/typescript-sdk@1.1.78` to devDependencies, rename fixture event types/keys to modern strings, and type-check `src` + `test` together after any SDK upgrade.
+
+---
+
+## L013 — Child enrichment catches must not swallow 429/401
+
+**Date:** 2026-10-19
+**Source:** Connector-review C5 on data-extraction child loops
+**Problem:** Per-parent `catch` blocks (app roles, assignments, auth methods, licenses, device owners/details) counted every error as a skip, so throttling silently dropped child records and marked the entity complete; device enrichment also lost already-enriched devices on a mid-page timeout.
+**Fix:** Rethrow 429/401 from child catches so the entity catch returns a delay; flush enriched devices before any timeout/throttle exit and resume pushing from `currentDeviceIndex`.

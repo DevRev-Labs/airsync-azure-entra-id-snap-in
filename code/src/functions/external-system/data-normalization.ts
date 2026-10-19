@@ -83,6 +83,9 @@ interface NormalizedItem {
  */
 const FALLBACK_DATE = '2000-01-01T00:00:00.000Z';
 
+// Indentation for JSON blobs stored in rich_text fields so they read cleanly in DevRev.
+const RICH_TEXT_JSON_INDENT = 2;
+
 /**
  * Azure Entra Admin Portal Base URL
  *
@@ -220,7 +223,7 @@ export function normalizeGroupMember(
 }
 
 /**
- * Normalize Group Member Removal
+ * Normalize Removed Group Member
  *
  * Represents a member removed from a group (from groups/delta members@delta with
  * @removed). Uses the same composite ID as the add record and populates
@@ -232,7 +235,7 @@ export function normalizeGroupMember(
  * @param groupId - The group ID the member was removed from
  * @param modifiedDate - Time of the change (sync time)
  */
-export function normalizeGroupMemberRemoval(
+export function normalizeRemovedGroupMember(
   memberId: string,
   groupId: string,
   modifiedDate: string
@@ -705,11 +708,11 @@ export function normalizeAuthenticationMethodsPolicy(
       display_name: policy.displayName, // Policy display name
       // Registration enforcement object (stringified as rich_text for DevRev EDM)
       registration_enforcement: policy.registrationEnforcement
-        ? JSON.stringify(policy.registrationEnforcement, null, 2)
+        ? JSON.stringify(policy.registrationEnforcement, null, RICH_TEXT_JSON_INDENT)
         : null,
       // Authentication method configurations array (stringified as rich_text for DevRev EDM)
       authentication_method_configurations: policy.authenticationMethodConfigurations
-        ? JSON.stringify(policy.authenticationMethodConfigurations, null, 2)
+        ? JSON.stringify(policy.authenticationMethodConfigurations, null, RICH_TEXT_JSON_INDENT)
         : null,
       // Registration enforcement campaign fields (flattened for easy querying)
       registration_campaign_state: campaignState, // Campaign enabled/disabled
