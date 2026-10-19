@@ -76,36 +76,23 @@
  */
 
 // Import DevRev Airdrop framework types and functions
-import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+import { ExtractionAdapter, processExtractionTask } from '@devrev/airsync-sdk';
 
 // Import common utilities and security functions
+import { DEFAULT_RATE_LIMIT_DELAY_SECONDS } from '../../common/constants';
 import { validateConnectionData } from '../../common/security';
 import { State } from '../../common/state';
-import { formatError } from '../../common/utils';
+import { formatError, getRetryAfterSeconds, isRateLimitError } from '../../common/utils';
 import { acquireAccessToken, EntraIDClient } from '../../external-system/entra-id-api';
 import baseEdm from '../../external-system/external_domain_metadata.json';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PROCESSTASK: DevRev Airdrop Framework Entry Point
 // ══════════════════════════════════════════════════════════════════════════════
-// This is the main entry point invoked by the DevRev Airdrop framework
-// Defines two callbacks: onTimeout (if worker exceeds time limit) and task (main logic)
-processTask({
-  // ────────────────────────────────────────────────────────────────────────────
-  // TIMEOUT HANDLER
-  // ────────────────────────────────────────────────────────────────────────────
-  // If metadata extraction takes too long (unlikely), emit completion event
-  // This ensures the sync can proceed even if extension discovery is incomplete
-  onTimeout: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
-    // Emit done event to allow data extraction to begin
-    await adapter.emit(ExtractorEventType.MetadataExtractionDone);
-  },
-
-  // ────────────────────────────────────────────────────────────────────────────
-  // MAIN TASK HANDLER
-  // ────────────────────────────────────────────────────────────────────────────
-  // Executes the metadata extraction and EDM enrichment workflow
-  task: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
+// Main entry point. Soft-timeout defaults to Progress (incomplete metadata
+// must not be published as Done — matches C3 / resumable metadata phase).
+processExtractionTask({
+  task: async ({ adapter }: { adapter: ExtractionAdapter<State> }) => {
     try {
       // ── Step 1: Extract and Validate Connection Credentials ────────────────
       // Get Azure AD connection details from DevRev event payload
@@ -142,7 +129,10 @@ processTask({
         const userExtensionFields: Record<string, unknown> = {};
 
         // ── Iterate Through Each Application ──────────────────────────────────
+        let appFailures = 0;
+        let lastAppError: unknown;
         for (const app of apps) {
+          if (adapter.isTimeout) return { status: 'progress' };
           try {
             // Query this application's registered extension properties
             const extensions = await client.listExtensionProperties(app.id);
@@ -170,8 +160,15 @@ processTask({
             // ── Per-Application Error (Non-Fatal) ─────────────────────────────
             // If we can't list extensions for one app, skip it and continue
             // This prevents one bad application from blocking all extension discovery
-            console.warn(`[metadata-extraction] Could not load extensions for app ${app.id}: ${formatError(extError)}`);
+            if (isRateLimitError(extError)) throw extError;
+            appFailures++;
+            lastAppError = extError;
           }
+        }
+        if (appFailures > 0) {
+          console.warn(
+            `[metadata-extraction] Could not load extensions for ${appFailures}/${apps.length} apps; last error: ${formatError(lastAppError)}`
+          );
         }
 
         // ── Step 6: Merge Extension Fields into EDM ───────────────────────────
@@ -190,7 +187,9 @@ processTask({
       } catch (discoverError) {
         // ── Global Discovery Error (Non-Fatal) ─────────────────────────────────
         // If entire extension discovery process fails, fall back to static metadata
-        // This ensures connector can function even without custom attributes
+        // This ensures connector can function even without custom attributes.
+        // Throttling is the exception: retry later rather than drop extension fields.
+        if (isRateLimitError(discoverError)) throw discoverError;
         console.warn(`[metadata-extraction] Extension property discovery failed, using static metadata: ${formatError(discoverError)}`);
       }
 
@@ -202,20 +201,19 @@ processTask({
       // This EDM will be used by data extraction worker to properly extract all fields
       await adapter.getRepo('external_domain_metadata')?.push([enrichedEdm]);
 
-      // ── Step 8: Emit Completion Event ──────────────────────────────────────
-      // Signal to Airdrop framework that metadata extraction is complete
-      // This triggers the data extraction worker to begin
-      await adapter.emit(ExtractorEventType.MetadataExtractionDone);
+      return { status: 'success' };
     } catch (error) {
-      // ── Fatal Error Handler ─────────────────────────────────────────────────
-      // If authentication or EDM publishing fails, emit error event
-      // This prevents data extraction from starting with invalid/missing metadata
+      if (isRateLimitError(error)) {
+        return {
+          status: 'delay',
+          delaySeconds: getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS),
+        };
+      }
       console.error('[metadata-extraction] Failed:', formatError(error));
-
-      // Emit error event with formatted error message
-      await adapter.emit(ExtractorEventType.MetadataExtractionError, {
-        error: { message: formatError(error) }, // DevRev-compatible error structure
-      });
+      return {
+        status: 'error',
+        error: { message: formatError(error) },
+      };
     }
   },
 });
@@ -250,22 +248,17 @@ processTask({
  * mapExtensionDataType('String')      // Returns: 'text' (default)
  */
 function mapExtensionDataType(dataType: string): string {
-  // Switch on Azure AD data type and return corresponding DevRev type
   switch (dataType) {
-    // Boolean values → bool type
-    case 'Boolean': return 'bool';
-
-    // 32-bit integers → int type
-    case 'Integer': return 'int';
-
-    // 64-bit integers → int type (DevRev int handles both)
-    case 'LargeInteger': return 'int';
-
-    // DateTime values → timestamp type
-    case 'DateTime': return 'timestamp';
-
-    // Default: map all other types (String, Binary, Unknown) to text
-    // This is a safe fallback since text can represent any value as a string
-    default: return 'text'; // String, Binary, etc.
+    case 'Boolean':
+      return 'bool';
+    case 'Integer':
+    case 'LargeInteger':
+      // DevRev int covers both 32-bit and 64-bit Graph integer types
+      return 'int';
+    case 'DateTime':
+      return 'timestamp';
+    default:
+      // String, Binary, Unknown → text is a safe catch-all
+      return 'text';
   }
 }

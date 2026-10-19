@@ -1,22 +1,20 @@
 import {
   AirSyncDefaultItemTypes,
-  ExtractorEventType,
-  processTask,
-  WorkerAdapter,
-} from '@devrev/ts-adaas';
+  ExtractionAdapter,
+  processExtractionTask,
+} from '@devrev/airsync-sdk';
 
-import { EXTERNAL_SYNC_UNITS_BATCH_SIZE } from '../../common/constants';
+import {
+  DEFAULT_RATE_LIMIT_DELAY_SECONDS,
+  EXTERNAL_SYNC_UNITS_BATCH_SIZE,
+} from '../../common/constants';
 import { State } from '../../common/state';
-import { formatError } from '../../common/utils';
+import { formatError, getRetryAfterSeconds, isRateLimitError } from '../../common/utils';
 import { acquireAccessToken, EntraIDClient } from '../../external-system/entra-id-api';
 
-processTask({
-  onTimeout: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
-    await adapter.emit(ExtractorEventType.ExternalSyncUnitExtractionError, {
-      error: { message: 'Timeout during sync unit discovery' },
-    });
-  },
-  task: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
+processExtractionTask({
+  // Non-resumable phase: SDK maps timeout to an error (no Progress event exists).
+  task: async ({ adapter }: { adapter: ExtractionAdapter<State> }) => {
     try {
       const { org_id: tenantId, key } = adapter.event.payload.connection_data;
       const [clientId, clientSecret] = key.split('|');
@@ -28,9 +26,8 @@ processTask({
       adapter.initializeRepos([
         {
           itemType: AirSyncDefaultItemTypes.EXTERNAL_SYNC_UNITS,
-          overridenOptions: {
+          overriddenOptions: {
             batchSize: EXTERNAL_SYNC_UNITS_BATCH_SIZE,
-            skipConfirmation: true,
           },
         },
       ]);
@@ -43,12 +40,21 @@ processTask({
         },
       ]);
 
-      await adapter.emit(ExtractorEventType.ExternalSyncUnitExtractionDone);
+      return { status: 'success' };
     } catch (error) {
+      // This phase is non-resumable, so the SDK reports a delay as an error;
+      // returning it still carries Retry-After instead of a generic failure.
+      if (isRateLimitError(error)) {
+        return {
+          status: 'delay',
+          delaySeconds: getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS),
+        };
+      }
       console.error('[external-sync-units-extraction] Failed:', formatError(error));
-      await adapter.emit(ExtractorEventType.ExternalSyncUnitExtractionError, {
+      return {
+        status: 'error',
         error: { message: formatError(error) },
-      });
+      };
     }
   },
 });

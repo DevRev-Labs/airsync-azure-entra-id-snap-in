@@ -115,11 +115,18 @@
  */
 
 // Import DevRev Airdrop framework types and functions
-import { EventType, ExtractorEventType, NormalizedItem, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+import {
+  EventType,
+  ExtractionAdapter,
+  NormalizedItem,
+  processExtractionTask,
+} from '@devrev/airsync-sdk';
 
 // Import state management types and initializer
 import {
   ADAPTER_TIMEOUT_DELAY_MS,
+  AUDIT_CONSISTENCY_DELAY_MS,
+  AUDIT_FALLBACK_PUSH_BATCH_SIZE,
   AUTH_ERROR_DELAY_SECONDS,
   DEFAULT_RATE_LIMIT_DELAY_SECONDS,
   ENTITY_NAMES,
@@ -149,7 +156,7 @@ import {
   normalizeDirectoryRole,
   normalizeGroup,
   normalizeGroupMember,
-  normalizeGroupMemberRemoval,
+  normalizeRemovedGroupMember,
   normalizeOrgContact,
   normalizeServicePrincipal,
   normalizeUser,
@@ -171,18 +178,14 @@ const USER_NORMALIZATION_VERSION = 3;
 
 /**
  * Graph directory audit ingestion can lag the directory write by several
- * minutes. Subtract this from `lastSuccessfulSyncStarted` when querying
- * "Update user" audits so a change that lands just before the previous run
- * finished (or whose audit record appears late) is still visible on the next
- * incremental. Without this lookback, true delta may return 0 and the audit
- * fallback also misses the event once the SDK advances the watermark.
+ * minutes. Subtract this from `extract_from` when querying "Update user"
+ * audits so a change that lands just before the previous run finished (or
+ * whose audit record appears late) is still visible on the next incremental.
+ * Without this lookback, true delta may return 0 and the audit fallback also
+ * misses the event once the SDK advances the watermark.
  */
 const USER_AUDIT_LOOKBACK_MS = 15 * 60 * 1000;
 
-/** Return a field's length for diagnostics without logging its PII value. */
-function profileValueLength(value: unknown): number {
-  return typeof value === 'string' ? value.length : 0;
-}
 
 // Process-level crash instrumentation (LABS-377).
 // The SDK emits "Worker exited without emitting event" whenever the Node
@@ -211,24 +214,10 @@ process.on('unhandledRejection', (reason: unknown) => {
  * MAIN EXTRACTION TASK
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * This processTask() call registers the worker with the DevRev Airdrop framework.
- * It defines two callbacks:
- * 1. onTimeout: Called when worker is about to timeout (saves progress)
- * 2. task: Main extraction logic that runs on each invocation
+ * This processExtractionTask() call registers the worker with the DevRev Airdrop framework.
+ * It defines the main extraction task; timeouts return { status: 'progress' }.
  */
-processTask({
-  /**
-   * Timeout Handler
-   *
-   * Called by the framework when the worker is approaching its execution time limit.
-   * Emits a progress event to signal that work is being saved and will resume later.
-   *
-   * The worker will be re-invoked later and will resume from its last saved state.
-   */
-  onTimeout: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
-    // Emit progress event to indicate state is being saved
-    await adapter.emit(ExtractorEventType.DataExtractionProgress);
-  },
+processExtractionTask({
 
   /**
    * Main Extraction Task
@@ -239,7 +228,7 @@ processTask({
    *
    * @param adapter - DevRev Airdrop adapter providing state management and API access
    */
-  task: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
+  task: async ({ adapter }: { adapter: ExtractionAdapter<State> }) => {
     try {
       // ─────────────────────────────────────────────────────────────────────────
       // STEP 1: EXTRACT AND VALIDATE CONNECTION CREDENTIALS
@@ -456,7 +445,7 @@ processTask({
             deltaPhaseCompleted?: boolean;
             pendingDeltaLink?: string;
             fallbackIndex?: number;
-          }) => {
+          }): void => {
             const prev = adapter.state.userAuditPreflight;
             adapter.state.userAuditPreflight = {
               auditStart: patch.auditStart ?? prev?.auditStart,
@@ -479,10 +468,10 @@ processTask({
           // read model can lag a successful audit event briefly, so wait until the
           // newest event is at least one minute old before fetching current profiles.
           // Also apply USER_AUDIT_LOOKBACK_MS: audit records themselves often appear
-          // in the API a few minutes after activityDateTime, and lastSuccessfulSyncStarted
+          // in the API a few minutes after activityDateTime, and extract_from
           // advances at the end of each run — without lookback the next incremental
           // permanently skips an Update-user that delta also omitted.
-          const auditWatermark = adapter.state.lastSuccessfulSyncStarted;
+          const auditWatermark = adapter.event.payload.event_context.extract_from;
           const auditStart = auditWatermark
             ? new Date(
                 Math.max(0, Date.parse(auditWatermark) - USER_AUDIT_LOOKBACK_MS)
@@ -502,7 +491,7 @@ processTask({
                     completed: false,
                   });
                   await wait(ADAPTER_TIMEOUT_DELAY_MS);
-                  return;
+                  return { status: 'progress' };
                 }
 
                 const auditPage = await client.listDirectoryAudits(auditStart, auditNextLink);
@@ -548,7 +537,10 @@ processTask({
               } while (auditNextLink);
 
               const consistencyDelayMs = latestUserAuditMs
-                ? Math.min(60_000, Math.max(0, 60_000 - (Date.now() - latestUserAuditMs)))
+                ? Math.min(
+                    AUDIT_CONSISTENCY_DELAY_MS,
+                    Math.max(0, AUDIT_CONSISTENCY_DELAY_MS - (Date.now() - latestUserAuditMs))
+                  )
                 : 0;
               console.info(
                 JSON.stringify({
@@ -603,7 +595,7 @@ processTask({
             // The worker will be re-invoked and resume from this point
             if (adapter.isTimeout) {
               await wait(ADAPTER_TIMEOUT_DELAY_MS); // Brief delay before exit
-              return; // Exit gracefully - state is already saved
+              return { status: 'progress' };
             }
 
             // ───────────────────────────────────────────────────────────────────
@@ -623,7 +615,7 @@ processTask({
             // API call completed, but check timeout before processing results
             if (adapter.isTimeout) {
               await wait(ADAPTER_TIMEOUT_DELAY_MS); // Brief delay before exit
-              return; // Exit gracefully - current page will be re-fetched on next invocation
+              return { status: 'progress' };
             }
 
             // ───────────────────────────────────────────────────────────────────
@@ -664,28 +656,12 @@ processTask({
               const normalized = usersToNormalize.map((u) =>
                 normalizeUser(u, syncTimestamp)
               );
-              if (isIncremental) {
-                for (const item of normalized) {
-                  console.info(
-                    JSON.stringify({
-                      event: 'entra_user_normalized',
-                      user_id: item.id,
-                      display_name_length: profileValueLength(item.data.display_name),
-                      full_name_length: profileValueLength(item.data.full_name),
-                      email_present: profileValueLength(item.data.email) > 0,
-                      created_date: item.created_date,
-                      modified_date: item.modified_date,
-                    })
-                  );
-                }
-              }
-              const usersPushed = await adapter.getRepo(ENTITY_NAMES.USERS)?.push(normalized);
+              await adapter.getRepo(ENTITY_NAMES.USERS)?.push(normalized);
               console.info(
                 JSON.stringify({
                   event: 'entra_users_page_queued',
                   query_mode: usersDeltaStart ? 'delta' : 'baseline',
                   count: normalized.length,
-                  success: usersPushed ?? false,
                 })
               );
               for (const user of usersToNormalize) {
@@ -697,6 +673,7 @@ processTask({
               usersToNormalize.length = 0;
             };
 
+            let hydrationNotFound = 0;
             while (userIdx < activeItems.length) {
               if (isIncremental && adapter.isTimeout) {
                 await flushHydratedUsers();
@@ -704,7 +681,7 @@ processTask({
                 // Keep nextLink at this page so resume re-fetches the same page.
                 adapter.state.users.nextLink = nextLink;
                 await wait(ADAPTER_TIMEOUT_DELAY_MS);
-                return;
+                return { status: 'progress' };
               }
 
               const user = activeItems[userIdx];
@@ -714,29 +691,12 @@ processTask({
                 continue;
               }
 
-              console.info(
-                JSON.stringify({ event: 'entra_user_hydration_started', user_id: user.id })
-              );
               const hydratedUser = await client.getUser(user.id);
               if (!hydratedUser) {
-                console.warn(
-                  JSON.stringify({ event: 'entra_user_hydration_not_found', user_id: user.id })
-                );
+                hydrationNotFound++;
                 userIdx++;
                 continue;
               }
-
-              console.info(
-                JSON.stringify({
-                  event: 'entra_user_hydration_completed',
-                  user_id: hydratedUser.id,
-                  display_name_present: Boolean(hydratedUser.displayName?.trim()),
-                  given_name_present: Boolean(hydratedUser.givenName?.trim()),
-                  surname_present: Boolean(hydratedUser.surname?.trim()),
-                  mail_present: Boolean(hydratedUser.mail?.trim()),
-                  upn_present: Boolean(hydratedUser.userPrincipalName?.trim()),
-                })
-              );
 
               // If the directory read is behind the audit, patch the hydrated
               // object with the audited new values before normalization so
@@ -752,6 +712,11 @@ processTask({
               userIdx++;
             }
 
+            if (hydrationNotFound > 0) {
+              console.warn(
+                JSON.stringify({ event: 'entra_user_hydration_not_found', count: hydrationNotFound })
+              );
+            }
             await flushHydratedUsers();
 
             // ───────────────────────────────────────────────────────────────────
@@ -802,7 +767,7 @@ processTask({
             const auditFallbackNormalized = auditFallbackUsers.map((user) =>
               normalizeUser(user, syncTimestamp)
             );
-            const fallbackPushed = await adapter
+            await adapter
               .getRepo(ENTITY_NAMES.USERS)
               ?.push(auditFallbackNormalized);
             adapter.state.users.extractedCount += auditFallbackNormalized.length;
@@ -816,7 +781,6 @@ processTask({
                 event: 'entra_user_audit_fallback_queued',
                 audited: auditedUserIds.size,
                 delta_missed: auditFallbackNormalized.length,
-                success: fallbackPushed ?? false,
               })
             );
             auditFallbackUsers.length = 0;
@@ -832,7 +796,7 @@ processTask({
                 fallbackIndex: fallbackIdx,
               });
               await wait(ADAPTER_TIMEOUT_DELAY_MS);
-              return;
+              return { status: 'progress' };
             }
             const userId = fallbackIds[fallbackIdx];
             let hydratedUser = await client.getUser(userId);
@@ -846,6 +810,9 @@ processTask({
                 hydratedUser = overlayAuditedUserFields(hydratedUser, fallbackOverlay);
               }
               auditFallbackUsers.push(hydratedUser);
+              if (auditFallbackUsers.length >= AUDIT_FALLBACK_PUSH_BATCH_SIZE) {
+                await flushAuditFallbackUsers();
+              }
             }
             fallbackIdx++;
           }
@@ -898,11 +865,7 @@ processTask({
             // Extract retry delay from Retry-After header (or use default)
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
 
-            // Emit delay event to pause extraction and retry later
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-
-            // Exit - worker will be re-invoked after delay
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
 
           // ── Authentication Error (HTTP 401) ────────────────────────────────
@@ -911,11 +874,7 @@ processTask({
           if (isAuthError(error)) {
             console.warn('[data-extraction] Auth error on users — requesting delay');
 
-            // Request 60-second delay for token refresh
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-
-            // Exit - worker will re-authenticate on next invocation
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
 
           // ── Delta Token Expired (HTTP 410 or syncStateNotFound) ───────────
@@ -934,8 +893,7 @@ processTask({
             };
 
             // Persist the reset and continue extraction from a fresh delta round.
-            await adapter.emit(ExtractorEventType.DataExtractionProgress);
-            return;
+            return { status: 'progress' };
           }
 
           // ── Permission Denied (HTTP 403) ───────────────────────────────────
@@ -982,12 +940,12 @@ processTask({
           }
           const groupsUsedDelta = adapter.state.groups.usedDelta;
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             // Always use delta so a deltaLink (with members@delta tracking) is obtained.
             page = await client.getGroupsDelta(nextLink || groupsDeltaStart);
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const activeItems = page.value.filter((g) => !g['@removed']);
             const normalized = activeItems.map((g) => normalizeGroup(g, isIncremental ? syncTimestamp : undefined));
@@ -1004,7 +962,7 @@ processTask({
                   if (m['@odata.type'] && m['@odata.type'] !== '#microsoft.graph.user') continue;
                   memberRecords.push(
                     m['@removed']
-                      ? normalizeGroupMemberRemoval(m.id, g.id, syncTimestamp)
+                      ? normalizeRemovedGroupMember(m.id, g.id, syncTimestamp)
                       : normalizeGroupMember(m, g.id, syncTimestamp)
                   );
                 }
@@ -1033,12 +991,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isDeltaExpiredError(error)) {
             adapter.state.deltaLinks.groups = undefined;
@@ -1052,8 +1008,7 @@ processTask({
               currentParentIndex: 0,
               extractedCount: 0,
             };
-            await adapter.emit(ExtractorEventType.DataExtractionProgress);
-            return;
+            return { status: 'progress' };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for groups (HTTP 403) — skipping`);
@@ -1079,17 +1034,17 @@ processTask({
           let currentIndex = adapter.state.groupMembers.currentParentIndex;
 
           while (currentIndex < groupIds.length) {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const groupId = groupIds[currentIndex];
             let innerNextLink = adapter.state.groupMembers.currentParentNextLink;
 
             do {
-              if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+              if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
               const page = await client.listGroupMembers(groupId, innerNextLink);
 
-              if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+              if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
               const normalized = page.value
                 .filter((m) => !m['@odata.type'] || m['@odata.type'] === '#microsoft.graph.user')
@@ -1111,12 +1066,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for group_members (HTTP 403) — skipping`);
@@ -1142,13 +1095,13 @@ processTask({
           let page;
           const collectedIds: string[] = [...adapter.state.directoryRoles.ids];
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.getDirectoryRolesDelta(
               nextLink || (isIncremental ? adapter.state.deltaLinks.directoryRoles : undefined)
             );
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const activeItems = page.value.filter((r) => !r['@removed']);
             const normalized = activeItems.map((r) =>
@@ -1172,20 +1125,17 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isDeltaExpiredError(error)) {
             console.warn('[data-extraction] Delta token expired for directory_roles — resetting to full sync');
             adapter.state.deltaLinks.directoryRoles = undefined;
             adapter.state.directoryRoles.completed = false;
             adapter.state.directoryRoles.nextLink = undefined;
-            await adapter.emit(ExtractorEventType.DataExtractionProgress);
-            return;
+            return { status: 'progress' };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for directory_roles (HTTP 403) — skipping`);
@@ -1224,13 +1174,13 @@ processTask({
           let nextLink = adapter.state.applications.nextLink;
           let page;
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.getApplicationsDelta(
               nextLink || (isIncremental ? adapter.state.deltaLinks.applications : undefined)
             );
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const activeItems = page.value.filter((a) => !a['@removed']);
             const normalized = activeItems.map((a) =>
@@ -1252,20 +1202,17 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isDeltaExpiredError(error)) {
             console.warn('[data-extraction] Delta token expired for applications — resetting to full sync');
             adapter.state.deltaLinks.applications = undefined;
             adapter.state.applications.completed = false;
             adapter.state.applications.nextLink = undefined;
-            await adapter.emit(ExtractorEventType.DataExtractionProgress);
-            return;
+            return { status: 'progress' };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for applications (HTTP 403) — skipping`);
@@ -1291,13 +1238,13 @@ processTask({
           let page;
           const collectedIdSet = new Set<string>(adapter.state.servicePrincipals.ids);
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.getServicePrincipalsDelta(
               nextLink || (isIncremental ? adapter.state.deltaLinks.servicePrincipals : undefined)
             );
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             for (const removed of page.value.filter((sp) => sp['@removed'])) {
               collectedIdSet.delete(removed.id);
@@ -1324,12 +1271,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isDeltaExpiredError(error)) {
             console.warn('[data-extraction] Delta token expired for service_principals — resetting to full sync');
@@ -1342,8 +1287,7 @@ processTask({
               ids: [],
               nextLink: undefined,
             };
-            await adapter.emit(ExtractorEventType.DataExtractionProgress);
-            return;
+            return { status: 'progress' };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for service_principals (HTTP 403) — skipping`);
@@ -1369,13 +1313,13 @@ processTask({
           let nextLink = adapter.state.devices.nextLink;
           let page;
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.getDevicesDelta(
               nextLink || (isIncremental ? adapter.state.deltaLinks.devices : undefined)
             );
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const activeItems = page.value.filter((d) => !d['@removed']);
 
@@ -1385,15 +1329,31 @@ processTask({
             // the 10-min soft timeout. We check isTimeout INSIDE the loop
             // and resume from currentDeviceIndex on the next invocation
             // instead of re-enriching from device 0.
-            let deviceIdx = adapter.state.devices.currentDeviceIndex ?? 0;
+            // Devices before currentDeviceIndex were enriched and pushed by the
+            // previous invocation; only the remainder of this page is pushed now.
+            let flushedIdx = adapter.state.devices.currentDeviceIndex ?? 0;
+            let deviceIdx = flushedIdx;
             let ownerFailures = 0;
             let detailFailures = 0;
+
+            const flushEnrichedDevices = async (): Promise<void> => {
+              if (deviceIdx > flushedIdx) {
+                const normalized = activeItems
+                  .slice(flushedIdx, deviceIdx)
+                  .map((d) => normalizeDevice(d, isIncremental ? syncTimestamp : undefined));
+                await adapter.getRepo(ENTITY_NAMES.DEVICES)?.push(normalized);
+                adapter.state.devices.extractedCount += normalized.length;
+                flushedIdx = deviceIdx;
+              }
+              adapter.state.devices.currentDeviceIndex = deviceIdx;
+              adapter.state.devices.nextLink = nextLink; // re-fetch this same page on resume
+            };
+
             while (deviceIdx < activeItems.length) {
               if (adapter.isTimeout) {
-                adapter.state.devices.currentDeviceIndex = deviceIdx;
-                adapter.state.devices.nextLink = nextLink; // re-fetch this same page on resume
+                await flushEnrichedDevices();
                 await wait(ADAPTER_TIMEOUT_DELAY_MS);
-                return;
+                return { status: 'progress' };
               }
 
               const device = activeItems[deviceIdx];
@@ -1406,6 +1366,10 @@ processTask({
                   device.registeredOwnerDisplayName = owner.displayName;
                 }
               } catch (ownerError) {
+                if (isRateLimitError(ownerError) || isAuthError(ownerError)) {
+                  await flushEnrichedDevices();
+                  throw ownerError;
+                }
                 ownerFailures++;
               }
 
@@ -1415,6 +1379,10 @@ processTask({
                 device.model = details.model;
                 device.profileType = details.profileType;
               } catch (detailsError) {
+                if (isRateLimitError(detailsError) || isAuthError(detailsError)) {
+                  await flushEnrichedDevices();
+                  throw detailsError;
+                }
                 detailFailures++;
               }
 
@@ -1427,12 +1395,7 @@ processTask({
               );
             }
 
-            const normalized = activeItems.map((d) =>
-              normalizeDevice(d, isIncremental ? syncTimestamp : undefined)
-            );
-            await adapter.getRepo(ENTITY_NAMES.DEVICES)?.push(normalized);
-
-            adapter.state.devices.extractedCount += normalized.length;
+            await flushEnrichedDevices();
             // Page fully enriched — reset the per-page cursor before
             // advancing to the next page's nextLink.
             adapter.state.devices.currentDeviceIndex = 0;
@@ -1450,12 +1413,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isDeltaExpiredError(error)) {
             console.warn('[data-extraction] Delta token expired for devices — resetting to full sync');
@@ -1463,8 +1424,7 @@ processTask({
             adapter.state.devices.completed = false;
             adapter.state.devices.nextLink = undefined;
             adapter.state.devices.currentDeviceIndex = 0;
-            await adapter.emit(ExtractorEventType.DataExtractionProgress);
-            return;
+            return { status: 'progress' };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for devices (HTTP 403) — skipping`);
@@ -1489,13 +1449,13 @@ processTask({
           let nextLink = adapter.state.orgContacts.nextLink;
           let page;
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.getOrgContactsDelta(
               nextLink || (isIncremental ? adapter.state.deltaLinks.orgContacts : undefined)
             );
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const activeItems = page.value.filter((c) => !c['@removed']);
             const normalized = activeItems.map((c) =>
@@ -1517,20 +1477,17 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isDeltaExpiredError(error)) {
             console.warn('[data-extraction] Delta token expired for org_contacts — resetting to full sync');
             adapter.state.deltaLinks.orgContacts = undefined;
             adapter.state.orgContacts.completed = false;
             adapter.state.orgContacts.nextLink = undefined;
-            await adapter.emit(ExtractorEventType.DataExtractionProgress);
-            return;
+            return { status: 'progress' };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for org_contacts (HTTP 403) — skipping`);
@@ -1561,7 +1518,7 @@ processTask({
           let spFailures = 0;
 
           while (currentIndex < spIds.length) {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const spId = spIds[currentIndex];
             try {
@@ -1583,6 +1540,8 @@ processTask({
                 }
               }
             } catch (spError) {
+              // 429/401 must surface as a delay so throttled children aren't dropped.
+              if (isRateLimitError(spError) || isAuthError(spError)) throw spError;
               // Non-fatal: skip this SP and continue
               spFailures++;
             }
@@ -1599,12 +1558,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for app_roles (HTTP 403) — skipping`);
@@ -1632,23 +1589,27 @@ processTask({
           let spFailures = 0;
 
           while (currentIndex < spIds.length) {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const spId = spIds[currentIndex];
             let innerNextLink = adapter.state.appRoleAssignments.currentParentNextLink;
 
             do {
-              if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+              if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
               try {
                 const page = await client.listAppRoleAssignments(spId, innerNextLink);
                 // Pass app role name map to generate better titles
-                const normalized = page.value.map((a) => normalizeAppRoleAssignment(a, appRoleNameMap));
+                const normalized = page.value.map((a) =>
+                  normalizeAppRoleAssignment(a, appRoleNameMap, isIncremental ? syncTimestamp : undefined)
+                );
                 await adapter.getRepo(ENTITY_NAMES.APP_ROLE_ASSIGNMENTS)?.push(normalized);
                 adapter.state.appRoleAssignments.extractedCount += normalized.length;
                 innerNextLink = page['@odata.nextLink'];
                 adapter.state.appRoleAssignments.currentParentNextLink = innerNextLink;
               } catch (spError) {
+                // 429/401 must surface as a delay so throttled children aren't dropped.
+                if (isRateLimitError(spError) || isAuthError(spError)) throw spError;
                 // Non-fatal: skip this SP and continue
                 spFailures++;
                 break;
@@ -1668,12 +1629,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for app_role_assignments (HTTP 403) — skipping`);
@@ -1701,7 +1660,7 @@ processTask({
           let userFailures = 0;
 
           while (currentIndex < userIds.length) {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const userId = userIds[currentIndex];
             try {
@@ -1720,6 +1679,8 @@ processTask({
                 adapter.state.authenticationMethods.extractedCount += normalized.length;
               }
             } catch (userError) {
+              // 429/401 must surface as a delay so throttled children aren't dropped.
+              if (isRateLimitError(userError) || isAuthError(userError)) throw userError;
               // Non-fatal: skip this user and continue
               userFailures++;
             }
@@ -1736,12 +1697,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for authentication_methods (HTTP 403) — skipping`);
@@ -1776,12 +1735,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for authentication_methods_policy (HTTP 403) — skipping`);
@@ -1809,7 +1766,7 @@ processTask({
           let userFailures = 0;
 
           while (currentIndex < userIds.length) {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const userId = userIds[currentIndex];
             try {
@@ -1822,6 +1779,8 @@ processTask({
                 adapter.state.licenseAssignments.extractedCount += normalized.length;
               }
             } catch (userError) {
+              // 429/401 must surface as a delay so throttled children aren't dropped.
+              if (isRateLimitError(userError) || isAuthError(userError)) throw userError;
               // Non-fatal: skip this user and continue
               userFailures++;
             }
@@ -1838,12 +1797,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for license_assignments (HTTP 403) — skipping`);
@@ -1869,11 +1826,11 @@ processTask({
           let nextLink = adapter.state.pimEligibleRoles.nextLink;
           let page;
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.listPIMEligibleRoles(nextLink);
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const normalized = page.value.map((r) =>
               normalizePIMEligibleRole(r, isIncremental ? syncTimestamp : undefined)
@@ -1891,12 +1848,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for pim_eligible_roles (HTTP 403) — skipping (requires Entra ID P2)`);
@@ -1925,11 +1880,11 @@ processTask({
           let nextLink = adapter.state.conditionalAccessPolicies.nextLink;
           let page;
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.listConditionalAccessPolicies(nextLink);
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const normalized = page.value.map((p) => normalizeConditionalAccessPolicy(p));
             await adapter.getRepo(ENTITY_NAMES.CONDITIONAL_ACCESS_POLICIES)?.push(normalized);
@@ -1945,12 +1900,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for conditional_access_policies (HTTP 403) — skipping`);
@@ -1980,11 +1933,11 @@ processTask({
           let nextLink = adapter.state.lifecycleWorkflows.nextLink;
           let page;
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.listLifecycleWorkflows(nextLink);
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const normalized = page.value.map((w) => normalizeLifecycleWorkflow(w));
             await adapter.getRepo(ENTITY_NAMES.LIFECYCLE_WORKFLOWS)?.push(normalized);
@@ -2000,12 +1953,10 @@ processTask({
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for lifecycle_workflows (HTTP 403) — skipping (requires Entra ID Governance)`);
@@ -2035,15 +1986,18 @@ processTask({
           // On first sync the cursor is unset — use a bounded 24h window to
           // avoid pulling millions of rows and blowing the Lambda memory
           // budget (LABS-377). Subsequent syncs resume from lastAuditLogSync.
+          // Capture query start before the first page so logs that arrive during
+          // a long extraction are not skipped by advancing the cursor to "now".
+          const queryStartedAt = new Date().toISOString();
           const startDateTime = adapter.state.lastAuditLogSync || new Date(Date.now() - INITIAL_LOG_WINDOW_MS).toISOString();
           let nextLink = adapter.state.directoryAuditLogs.nextLink;
           let page;
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.listDirectoryAudits(startDateTime, nextLink);
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const normalized = page.value.map((a) => normalizeDirectoryAuditLog(a));
             await adapter.getRepo(ENTITY_NAMES.DIRECTORY_AUDIT_LOGS)?.push(normalized);
@@ -2055,17 +2009,15 @@ processTask({
 
           adapter.state.directoryAuditLogs.completed = true;
           adapter.state.directoryAuditLogs.nextLink = undefined;
-          adapter.state.lastAuditLogSync = new Date().toISOString();
+          adapter.state.lastAuditLogSync = queryStartedAt;
           console.info(`[data-extraction] Directory audit logs extracted: ${adapter.state.directoryAuditLogs.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for directory_audit_logs (HTTP 403) — skipping`);
@@ -2095,15 +2047,17 @@ processTask({
           // Bounded initial window (see LABS-377). Sign-in logs are especially
           // heavy — a large tenant can emit millions of rows/day with nested
           // deviceDetail/applicationDetail/authenticationDetails payloads.
+          // Capture query start before the first page (same gap fix as audit logs).
+          const queryStartedAt = new Date().toISOString();
           const startDateTime = adapter.state.lastSignInLogSync || new Date(Date.now() - INITIAL_LOG_WINDOW_MS).toISOString();
           let nextLink = adapter.state.signInLogs.nextLink;
           let page;
           do {
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             page = await client.listSignIns(startDateTime, nextLink);
 
-            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return; }
+            if (adapter.isTimeout) { await wait(ADAPTER_TIMEOUT_DELAY_MS); return { status: 'progress' }; }
 
             const normalized = page.value.map((s) => normalizeSignInLog(s));
             await adapter.getRepo(ENTITY_NAMES.SIGN_IN_LOGS)?.push(normalized);
@@ -2115,17 +2069,15 @@ processTask({
 
           adapter.state.signInLogs.completed = true;
           adapter.state.signInLogs.nextLink = undefined;
-          adapter.state.lastSignInLogSync = new Date().toISOString();
+          adapter.state.lastSignInLogSync = queryStartedAt;
           console.info(`[data-extraction] Sign-in logs extracted: ${adapter.state.signInLogs.extractedCount}`);
         } catch (error) {
           if (isRateLimitError(error)) {
             const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay });
-            return;
+            return { status: 'delay', delaySeconds: delay };
           }
           if (isAuthError(error)) {
-            await adapter.emit(ExtractorEventType.DataExtractionDelayed, { delay: AUTH_ERROR_DELAY_SECONDS });
-            return;
+            return { status: 'delay', delaySeconds: AUTH_ERROR_DELAY_SECONDS };
           }
           if (isForbiddenError(error)) {
             console.info(`[data-extraction] Permission denied for sign_in_logs (HTTP 403) — skipping`);
@@ -2192,9 +2144,15 @@ processTask({
       }
 
       console.info(`[data-extraction] Extraction completed successfully`);
-      await adapter.emit(ExtractorEventType.DataExtractionDone);
+      return { status: 'success' };
 
     } catch (error) {
+      // Token-endpoint 429 (and any uncaught Graph 429) must delay, not fail.
+      if (isRateLimitError(error)) {
+        const delay = getRetryAfterSeconds(error, DEFAULT_RATE_LIMIT_DELAY_SECONDS);
+        return { status: 'delay', delaySeconds: delay };
+      }
+
       // ═══════════════════════════════════════════════════════════════════════
       // UNRECOVERABLE ERROR HANDLER
       // ═══════════════════════════════════════════════════════════════════════
@@ -2213,9 +2171,7 @@ processTask({
 
       // Emit error event to signal extraction failure
       // This will mark the sync as failed in DevRev
-      await adapter.emit(ExtractorEventType.DataExtractionError, {
-        error: { message: formatError(error) },
-      });
+      return { status: 'error', error: { message: formatError(error) } };
     }
   },
 });

@@ -34,6 +34,7 @@ import {
   EXTENSION_DISCOVERY_APP_LIMIT,
   GRAPH_BASE_URL,
   HTTP_REQUEST_TIMEOUT_MS,
+  MAX_CLIENT_SECRET_LENGTH,
   MAX_RETRIES,
   PAGE_SIZE,
 } from '../common/constants';
@@ -121,8 +122,10 @@ export async function acquireAccessToken(
 
   // Validate client secret exists and has reasonable length
   // Maximum length check prevents buffer overflow attacks
-  if (!clientSecret || !validateMaxLength(clientSecret, 1000)) {
-    throw new Error('Invalid client secret. Must be non-empty and less than 1000 characters.');
+  if (!clientSecret || !validateMaxLength(clientSecret, MAX_CLIENT_SECRET_LENGTH)) {
+    throw new Error(
+      `Invalid client secret. Must be non-empty and less than ${MAX_CLIENT_SECRET_LENGTH} characters.`
+    );
   }
 
   // Construct Azure AD token endpoint URL for the specified tenant
@@ -157,7 +160,6 @@ export async function acquireAccessToken(
         }
       );
 
-      // Extract JWT access token from response
       return response.data.access_token;
     } catch (error) {
       // Check if error is an HTTP error from axios
@@ -165,26 +167,37 @@ export async function acquireAccessToken(
         // Extract HTTP status code
         const status = error.response?.status;
 
-        // Don't retry authentication errors (invalid credentials)
-        if (status === 400 || status === 401) {
+        // Don't retry auth failures or rate limits — workers must see 429 so
+        // they can emit DataExtractionDelayed instead of exhausting retries
+        // and failing the sync as DataExtractionError.
+        if (status === 400 || status === 401 || status === 429) {
           // 400 = Bad Request (malformed request)
           // 401 = Unauthorized (invalid client ID or secret)
-          throw error; // These are non-retryable - fail immediately
+          // 429 = Too Many Requests (token endpoint throttle)
+          throw error;
         }
       }
 
       // Store error for potential re-throw after all retries
       lastError = error;
 
-      // Wait before next retry using linear backoff
-      // attempt 1: wait 1000ms, attempt 2: wait 2000ms, attempt 3: wait 3000ms
-      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+      // Exponential backoff: 1s, 2s, 4s (matches EntraIDClient.get)
+      const backoffMs = Math.pow(2, attempt - 1) * 1000;
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
     }
   }
 
   // All retries exhausted - throw the last error encountered
   throw lastError;
 }
+
+/** Properties requested from users/delta so profile/name changes are tracked. */
+export const USER_DELTA_SELECT =
+  'id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,accountEnabled,userType,createdDateTime';
+
+/** Properties requested from groups/delta; "members" enables members@delta. */
+export const GROUP_DELTA_SELECT =
+  'id,displayName,description,mail,groupTypes,securityEnabled,mailEnabled,createdDateTime,members';
 
 /**
  * Microsoft Entra ID (Azure AD) API Client Class
@@ -207,14 +220,6 @@ export async function acquireAccessToken(
  * const users = await client.listUsersPage();
  * ```
  */
-/** Properties requested from users/delta so profile/name changes are tracked. */
-export const USER_DELTA_SELECT =
-  'id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation,mobilePhone,businessPhones,accountEnabled,userType,createdDateTime';
-
-/** Properties requested from groups/delta; "members" enables members@delta. */
-export const GROUP_DELTA_SELECT =
-  'id,displayName,description,mail,groupTypes,securityEnabled,mailEnabled,createdDateTime,members';
-
 export class EntraIDClient {
   // Private axios instance configured with base URL, auth, and timeouts
   private client: AxiosInstance;
@@ -233,7 +238,6 @@ export class EntraIDClient {
    * const client = new EntraIDClient(token);
    */
   constructor(accessToken: string) {
-    // Create axios instance with default configuration
     this.client = axios.create({
       // Base URL for all Microsoft Graph API requests
       baseURL: GRAPH_BASE_URL, // https://graph.microsoft.com/v1.0
@@ -378,7 +382,6 @@ export class EntraIDClient {
       throw new Error('No organization data returned from Microsoft Graph');
     }
 
-    // Return organization object
     return org;
   }
 
@@ -408,7 +411,6 @@ export class EntraIDClient {
     // Use provided nextLink or construct initial request URL with page size
     const url = nextLink || `/users?$top=${PAGE_SIZE}`;
 
-    // Execute GET request and return paged response
     return this.get<GraphPagedResponse<EntraUser>>(url);
   }
 
@@ -439,7 +441,6 @@ export class EntraIDClient {
     // $select ensures name/profile properties are present in delta results.
     const url = deltaLink || `/users/delta?$top=${PAGE_SIZE}&$select=${USER_DELTA_SELECT}`;
 
-    // Execute GET request and return delta response
     return this.get<GraphPagedResponse<EntraUser>>(url);
   }
 
@@ -477,7 +478,6 @@ export class EntraIDClient {
     // Use provided nextLink or construct initial request URL with page size
     const url = nextLink || `/groups?$top=${PAGE_SIZE}`;
 
-    // Execute GET request and return paged response
     return this.get<GraphPagedResponse<EntraGroup>>(url);
   }
 
@@ -502,7 +502,6 @@ export class EntraIDClient {
     // as members@delta (with @removed for removed members).
     const url = deltaLink || `/groups/delta?$top=${PAGE_SIZE}&$select=${GROUP_DELTA_SELECT}`;
 
-    // Execute GET request and return delta response
     return this.get<GraphPagedResponse<EntraGroup>>(url);
   }
 
@@ -530,7 +529,6 @@ export class EntraIDClient {
     // Construct URL with encoded group ID or use provided nextLink
     const url = nextLink || `/groups/${encodeURIComponent(groupId)}/members?$top=${PAGE_SIZE}`;
 
-    // Execute GET request and return paged response
     return this.get<GraphPagedResponse<EntraDirectoryRoleMember>>(url);
   }
 

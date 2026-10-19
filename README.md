@@ -133,14 +133,16 @@ airsync-azure-entra-id-snap-in/
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@devrev/typescript-sdk` | ^1.1.1 | DevRev SDK for snap-ins |
-| `axios` | ^1.7.9 | HTTP client for Microsoft Graph API |
-| `typescript` | ^5.8.0 | TypeScript compiler |
+| `@devrev/airsync-sdk` | ^2.0.0 | AirSync SDK (worker runtime, repos, state) |
+| `axios` | ^1.20.0 | HTTP client for Microsoft Graph API |
 
 ### Development Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
+| `@devrev/typescript-sdk` | 1.1.78 | Snap-in types for the local test server (`code/test/`) |
+| `express`, `body-parser`, `helmet` | — | Local test server (`npm run test:server`) |
+| `typescript` | ^5.8.0 | TypeScript compiler |
 | `jest` | ^29.7.0 | Testing framework |
 | `ts-jest` | ^29.2.5 | TypeScript support for Jest |
 | `eslint` | ^9.39.4 | Code linting (latest v9 flat config) |

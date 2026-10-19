@@ -133,12 +133,17 @@ export interface State {
 
   // Connector-owned time-window cursors for endpoints that don't support
   // delta queries (audit logs, sign-in logs). lastSyncStarted and
-  // lastSuccessfulSyncStarted are SDK-managed (see @devrev/ts-adaas SdkState)
+  // lastSuccessfulSyncStarted are SDK-managed (see @devrev/airsync-sdk sdkState)
   // and must not be redeclared or written to here.
   lastAuditLogSync?: string;
   lastSignInLogSync?: string;
 }
 
+/**
+ * Build a fresh connector extraction state with all entities incomplete and
+ * empty ID lists / delta links. Used when starting INITIAL sync and when
+ * resetting per-entity completion flags on incremental Start.
+ */
 export function getInitialState(): State {
   return {
     users: { completed: false, extractedCount: 0, ids: [] },

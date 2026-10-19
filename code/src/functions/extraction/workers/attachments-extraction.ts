@@ -1,8 +1,8 @@
 /**
  * Attachments extraction worker for the Azure Entra ID AirSync connector.
  *
- * This worker handles EXTRACTION_ATTACHMENTS_START and EXTRACTION_ATTACHMENTS_CONTINUE
- * events dispatched by the DevRev ADaaS platform.
+ * This worker handles START_EXTRACTING_ATTACHMENTS and CONTINUE_EXTRACTING_ATTACHMENTS
+ * events dispatched by the DevRev AirSync platform.
  *
  * Azure Entra ID does not include binary file attachments, so this worker is a no-op
  * stub that immediately signals completion. It is required by the ADaaS framework
@@ -12,46 +12,17 @@
  * policy documents), the implementation should go here.
  */
 
-import { ExtractorEventType, processTask, WorkerAdapter } from '@devrev/ts-adaas';
+import { ExtractionAdapter, processExtractionTask } from '@devrev/airsync-sdk';
 
-// Import the State type to satisfy the generic WorkerAdapter type parameter
 import { LabsUsageTracker } from '../../common/labs-usage';
 import { State } from '../../common/state';
 
 /**
- * Register the attachment extraction task with the ADaaS worker framework.
- *
- * `processTask` must be called at the module's top level — not inside a function —
- * because the ADaaS framework resolves and invokes the exported task at module load time.
+ * Register the attachment extraction task with the AirSync worker framework.
+ * Soft-timeout defaults to Progress; this phase has no binary attachments.
  */
-processTask({
-  /**
-   * onTimeout handler — called when the ADaaS platform signals that the worker
-   * is approaching its execution time limit.
-   *
-   * For attachments, we emit `AttachmentExtractionProgress` (a no-op progress event)
-   * to acknowledge the timeout without failing the extraction.
-   *
-   * @param adapter - The worker adapter providing event access and event emission
-   */
-  onTimeout: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
-    // Emit a progress event to acknowledge the timeout gracefully
-    await adapter.emit(ExtractorEventType.AttachmentExtractionProgress);
-  },
-
-  /**
-   * task handler — the main business logic for attachment extraction.
-   *
-   * This connector does not have any binary attachments to extract from Azure Entra ID,
-   * so we immediately emit the done event to signal successful (empty) completion.
-   *
-   * @param adapter - The worker adapter providing event access and event emission
-   */
-  task: async ({ adapter }: { adapter: WorkerAdapter<State> }) => {
-    // No attachments to extract — immediately signal completion
-    // TODO: Implement attachment extraction if Azure Entra ID adds attachment endpoints in the future
-    await adapter.emit(ExtractorEventType.AttachmentExtractionDone);
-
+processExtractionTask({
+  task: async ({ adapter }: { adapter: ExtractionAdapter<State> }) => {
     // Track usage event for marketplace telemetry (non-blocking)
     // This runs at the very end of the entire snap-in execution (after all extraction phases)
     // Wrapped in try-catch to ensure telemetry issues never impact the snap-in functionality
@@ -99,7 +70,7 @@ processTask({
           console.info('[LabsUsageTracker] No entities completed extraction, skipping usage tracking', {
             reason: 'No completed entities found in state',
           });
-          return;
+          return { status: 'success' };
         }
 
         console.info('[LabsUsageTracker] Extraction completed successfully, building usage payload');
@@ -180,5 +151,7 @@ processTask({
         stack: error instanceof Error ? error.stack : undefined,
       });
     }
+
+    return { status: 'success' };
   },
 });

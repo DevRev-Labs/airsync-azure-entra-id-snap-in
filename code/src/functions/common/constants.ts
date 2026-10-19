@@ -52,6 +52,16 @@ export const EXTENSION_DISCOVERY_APP_LIMIT = 100;
 // Default HTTP timeout (ms) for the marketplace usage-tracking client.
 export const DEFAULT_LABS_USAGE_TIMEOUT_MS = 5_000;
 
+// Graph directory audit consistency window: wait so delta/hydration can see
+// recently audited user profile changes before we stamp modified_date.
+export const AUDIT_CONSISTENCY_DELAY_MS = 60_000;
+
+// Cap on axios error response bodies embedded in formatError() messages.
+export const MAX_ERROR_BODY_LENGTH = 500;
+
+// Max hydrated users held in the audit-fallback buffer before a repo push.
+export const AUDIT_FALLBACK_PUSH_BATCH_SIZE = 100;
+
 // ══════════════════════════════════════════════════════════════════════════════
 // SECURITY CONSTANTS
 // ══════════════════════════════════════════════════════════════════════════════
