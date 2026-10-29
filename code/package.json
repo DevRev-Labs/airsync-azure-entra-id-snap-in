@@ -22,7 +22,7 @@
   "dependencies": {
     "@devrev/airsync-sdk": "^2.0.0",
     "axios": "^1.20.0",
-    "follow-redirects": "^1.16.1"
+    "follow-redirects": "^1.16.2"
   },
   "overrides": {
     "protobufjs": ">=8.6.5",
